@@ -210,11 +210,13 @@ const SPOT_FOR: Record<MissionTarget, string> = {
 };
 
 /** Geldanzeige, die sanft zum neuen Wert zählt */
-function MoneyTicker({ value }: { value: number }) {
+function MoneyTicker({ value, frozen = false }: { value: number; frozen?: boolean }) {
   const [shown, setShown] = useState(value);
   const cur = useRef(value);
   const target = useRef(value);
   target.current = value;
+  const frozenRef = useRef(frozen);
+  frozenRef.current = frozen;
   useEffect(() => {
     let raf = 0;
     let last = performance.now();
@@ -223,6 +225,11 @@ function MoneyTicker({ value }: { value: number }) {
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
       const diff = target.current - cur.current;
+      // Während einer Fahrt nicht animieren: jedes Bild würde die Oberfläche neu zeichnen
+      if (frozenRef.current) {
+        last = now;
+        return;
+      }
       if (Math.abs(diff) < 0.5) {
         if (cur.current !== target.current) {
           cur.current = target.current;
@@ -272,7 +279,7 @@ function TipModal({ id, onClose }: { id: string; onClose: () => void }) {
 type FreeSession = { config: ReturnType<typeof makeFreeDriveConfig>['config']; trackId: string; driverId: string; intro: boolean };
 
 function Shell({ onQuit }: { onQuit: () => void }) {
-  const { game, update, saveOk, toast, get } = useGame();
+  const { game, update, saveOk, toast, get, setIncomePaused } = useGame();
   const g = game as GameState;
   const [panel, setPanel] = useState<{ key: StationId | 'settings'; tab: Screen; focus?: RaceFocus } | null>(null);
   const [racing, setRacing] = useState(false);
@@ -352,6 +359,11 @@ function Shell({ onQuit }: { onQuit: () => void }) {
   const objective = missions[0] ? SPOT_FOR[missions[0].target] : null;
   const showTip = !!tipId && !racing && !panel && !free && !freeResult && !ev && !g.seasonEnd && !offline;
   const blocking = !!panel || (!!ev && !racing) || !!g.seasonEnd || quick || help || !!free || !!freeResult || showTip || !!offline || !!reopenTip;
+  // Während einer Fahrt läuft das Einkommen im Hintergrund weiter, ohne jede Sekunde die Oberfläche neu zu zeichnen
+  useEffect(() => {
+    setIncomePaused(!!free || racing);
+    return () => setIncomePaused(false);
+  }, [free, racing, setIncomePaused]);
   const tabs = panel ? (panel.key === 'settings' ? (['settings'] as Screen[]) : STATION_TABS[panel.key].filter((t) => t !== 'finance' || feats.finance)) : [];
   const panelTitle = panel ? (panel.key === 'settings' ? 'Einstellungen' : STATION_LABELS[panel.key]) : '';
   const nextTrack = g.calendar[g.round] ? TRACK_BY_ID[g.calendar[g.round]] : null;
@@ -359,7 +371,7 @@ function Shell({ onQuit }: { onQuit: () => void }) {
 
   return (
     <div className="hub-root">
-      <HubWorld game={g} paused={blocking} alerts={alerts} objective={objective} onOpen={open} onBuy={buy} onFreeDrive={startFree} walkTo={walkTo} />
+      <HubWorld game={g} paused={blocking} hidden={!!free || racing} alerts={alerts} objective={objective} onOpen={open} onBuy={buy} onFreeDrive={startFree} walkTo={walkTo} />
 
       <header className="hub-top">
         <div className="hub-team">
@@ -372,7 +384,7 @@ function Shell({ onQuit }: { onQuit: () => void }) {
         <div className="hub-kpis">
           <button type="button" className="kpi money-kpi" onClick={() => setIncomeOpen((v) => !v)} aria-expanded={incomeOpen} aria-label="Einnahmen anzeigen">
             <span className="l">Budget</span>
-            <span className="v" style={{ color: g.money < 0 ? 'var(--bad)' : undefined }}><MoneyTicker value={g.money} /></span>
+            <span className="v" style={{ color: g.money < 0 ? 'var(--bad)' : undefined }}><MoneyTicker value={g.money} frozen={!!free || racing} /></span>
             <span className="rate">+{Math.round(rate).toLocaleString('de-DE')} €/s</span>
           </button>
           <div className="kpi hide-xs">

@@ -54,6 +54,9 @@ export function bindKeyboard(ctrl: ControlState, onAction: (action: string) => v
     else if (e.code === 'KeyT') onAction('tower');
     else if (e.code === 'KeyL') onAction('line');
     else if (e.code === 'KeyR') onAction('reset');
+    else if (/^Digit[1-5]$/.test(e.code)) onAction(`pit:${e.code.slice(5)}`);
+    else if (e.code === 'KeyF') onAction('pit:fuel');
+    else if (e.code === 'KeyE') onAction('pit:repair');
   };
   const up = (e: KeyboardEvent) => {
     const k = MAP[e.code];

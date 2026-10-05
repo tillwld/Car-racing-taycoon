@@ -2,6 +2,7 @@
 import type { RaceEngine, CarSim } from './engine';
 import { pointAt, wrapIndex, nearestIndexGlobal, type TrackGeometry } from './trackGeometry';
 import type { TrackDef } from '../types';
+import { PIT } from './params';
 
 interface Scenery {
   trees: { x: number; y: number; r: number; c: string }[];
@@ -115,22 +116,31 @@ export class RaceRenderer {
     const eng = this.eng;
     const pit = new Path2D();
     const pitWall = new Path2D();
-    const L = g.length;
-    const total = (eng.pitOut - eng.pitIn + L) % L;
-    for (let d = 0; d <= total; d += 4) {
-      const s = eng.pitIn + d;
-      let lat = eng.pitLat;
-      if (d < 80) lat = g.lineOff[wrapIndex(Math.round(eng.pitIn / g.ds), g.n)] * (1 - sm(d / 80)) + eng.pitLat * sm(d / 80);
-      else if (d > total - 90) lat = eng.pitLat + (g.lineOff[wrapIndex(Math.round(eng.pitOut / g.ds), g.n)] - eng.pitLat) * sm((d - (total - 90)) / 90);
-      const p = pointAt(g, s, lat);
+    const side = eng.pitSide;
+    const eL = PIT.entryLen;
+    const xs = eng.pitLen - PIT.exitLen;
+    for (let d = 0; d <= eng.pitLen; d += 4) {
+      const t = d < eL ? sm(d / eL) : d > xs ? sm(1 - (d - xs) / PIT.exitLen) : 1;
+      const p = pointAt(g, eng.pitIn + d, side * (hw + 0.15 + 9.3 * t));
       if (d === 0) pit.moveTo(p.x, p.y);
       else pit.lineTo(p.x, p.y);
-      if (d > 90 && d < total - 100) {
-        const w = pointAt(g, s, Math.sign(eng.pitLat) * (Math.abs(eng.pitLat) - 5.5));
-        if (d < 95) pitWall.moveTo(w.x, w.y);
+      if (d >= eL && d <= xs) {
+        const w = pointAt(g, eng.pitIn + d, side * (hw + PIT.wall));
+        if (d < eL + 4) pitWall.moveTo(w.x, w.y);
         else pitWall.lineTo(w.x, w.y);
       }
     }
+    const wallPath = (sgn: number) => {
+      const path = new Path2D();
+      for (let i = 0; i <= g.n; i += 2) {
+        const ii = wrapIndex(i, g.n);
+        const lat = sgn * eng.outerWallAt(ii * g.ds, sgn);
+        if (i === 0) path.moveTo(g.x[ii] + g.nx[ii] * lat, g.y[ii] + g.ny[ii] * lat);
+        else path.lineTo(g.x[ii] + g.nx[ii] * lat, g.y[ii] + g.ny[ii] * lat);
+      }
+      path.closePath();
+      return path;
+    };
     // Minikarte
     const mini = new Path2D();
     for (let i = 0; i <= g.n; i += 4) {
@@ -155,8 +165,8 @@ export class RaceRenderer {
       edgeR: this.offsetPath(hw),
       kerbL,
       kerbR,
-      wallL: this.offsetPath(-wall),
-      wallR: this.offsetPath(wall),
+      wallL: wallPath(-1),
+      wallR: wallPath(1),
       pitLane: pit,
       pitWall,
       mini,
@@ -211,7 +221,9 @@ export class RaceRenderer {
       const i = nearestIndexGlobal(g, x, y);
       const d = Math.hypot(x - g.x[i], y - g.y[i]);
       if (d < minD + 4) continue;
-      if (Math.abs(d - Math.abs(this.eng.pitLat)) < 22 && (i * g.ds > this.eng.pitIn - 40 || i * g.ds < this.eng.pitOut + 40)) continue;
+      const sideLat = (x - g.x[i]) * g.nx[i] + (y - g.y[i]) * g.ny[i];
+      const relP = this.eng.pitRelOf(i * g.ds);
+      if (sideLat * this.eng.pitSide > 0 && (relP < this.eng.pitLen + 60 || relP > g.length - 60) && d < g.halfWidth + PIT.barrier + 34) continue;
       if (this.track.scenery === 'harbor' && Math.random() < 0.6) continue;
       trees.push({ x, y, r: 2.5 + Math.random() * 4.5, c: cols.tree[Math.floor(Math.random() * cols.tree.length)] });
     }
@@ -309,7 +321,7 @@ export class RaceRenderer {
     ctx.stroke(this.paths.runoff);
     // Boxengasse
     ctx.strokeStyle = '#3a3f45';
-    ctx.lineWidth = 8;
+    ctx.lineWidth = 9;
     ctx.stroke(this.paths.pitLane);
     ctx.strokeStyle = 'rgba(255,255,255,0.5)';
     ctx.lineWidth = 0.25;
@@ -405,17 +417,26 @@ export class RaceRenderer {
     {
       const teams = new Map<number, string>();
       for (const c of eng.cars) teams.set(c.cfg.boxIndex, c.cfg.color);
+      const side = eng.pitSide;
       teams.forEach((color, idx) => {
-        const s = g.length - 150 + idx * 26;
-        const p = pointAt(g, s, eng.pitLat + Math.sign(eng.pitLat) * 7);
+        const s = eng.boxS(idx);
+        const p = pointAt(g, s, side * (g.halfWidth + PIT.door + 3.4));
         if (!vis(p.x, p.y, 20)) return;
         ctx.save();
         ctx.translate(p.x, p.y);
         ctx.rotate(Math.atan2(p.ty, p.tx));
         ctx.fillStyle = '#2a3036';
-        ctx.fillRect(-10, -3, 20, 6);
+        ctx.fillRect(-10, -3.2, 20, 6.4);
         ctx.fillStyle = color;
-        ctx.fillRect(-10, Math.sign(eng.pitLat) > 0 ? 2 : -3, 20, 1);
+        ctx.fillRect(-10, side > 0 ? -3.2 : 2.4, 20, 0.8);
+        ctx.restore();
+        const q = pointAt(g, s, side * (g.halfWidth + PIT.work));
+        ctx.save();
+        ctx.translate(q.x, q.y);
+        ctx.rotate(Math.atan2(q.ty, q.tx));
+        ctx.globalAlpha = 0.5;
+        ctx.fillStyle = color;
+        ctx.fillRect(-3.3, -1.7, 6.6, 3.4);
         ctx.restore();
       });
     }

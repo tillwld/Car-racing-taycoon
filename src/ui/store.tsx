@@ -40,6 +40,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
   });
   const ref = useRef<GameState | null>(game);
   const incomePaused = useRef(false);
+  const accrued = useRef(0);
   const savedRef = useRef<GameState | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -127,10 +128,12 @@ export function GameProvider({ children }: { children: ReactNode }) {
       const cur = ref.current;
       if (!cur || !cur.created) return;
       if (incomePaused.current) {
-        ref.current = { ...cur, lastTick: now };
+        // Fahrt läuft: Einnahmen sammeln, aber noch nichts neu zeichnen
+        accrued.current += incomePerSec(cur) * dt;
         return;
       }
-      const gain = incomePerSec(cur) * dt;
+      const gain = incomePerSec(cur) * dt + accrued.current;
+      accrued.current = 0;
       const next: GameState = { ...cur, money: cur.money + gain, lastTick: now, stats: { ...cur.stats, income: cur.stats.income + gain, passive: cur.stats.passive + gain } };
       ref.current = next;
       setGameState(next);

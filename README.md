@@ -32,7 +32,7 @@ Am Anfang gibt es nur Teststrecke, Rennen und einen Kiosk. Alles andere wird dur
 | Werkstatt | Upgrades, Reparatur, Chassis | erstes Rennen |
 | Sponsoren-Lounge | Sponsoren-Verträge | erstes Rennen |
 | Prüfstand | Training und Fahrzeugabstimmung | Werkstatt |
-| Reifenlager | Reifenwahl, Sprit, Boxenstopps (Taste P im Rennen) | Prüfstand, 2 Rennen |
+| Reifenlager | Reifenwahl, Sprit, eigene Auswahl am Boxenstopp (Boxenstopps selbst gibt es immer) | Prüfstand, 2 Rennen |
 | Personalbüro | Mitarbeiter | Werkstatt, 3 Rennen |
 | Fahrerlounge | Fahrer, Verträge, Akademie | 3 Rennen |
 | Forschungslabor | Forschungsbaum | Werkstatt, 3 Rennen |
@@ -48,13 +48,16 @@ Das Qualifying schaltet sich nach dem ersten Rennen frei. Bis dahin wird der Sta
 | S / ↓ | Bremse (im Stand: rückwärts) |
 | A D / ← → | Lenken |
 | Leertaste | Boost (begrenzte Energie, lädt beim Bremsen auf) |
-| P | Boxenstopp anfordern (ab Reifenlager) |
+| P / B | Boxenstopp anfordern oder absagen (immer verfügbar) |
+| 1 – 5 · F · E | im Boxenmenü: Reifenmischung · Nachtanken · Reparatur (ab Reifenlager) |
 | R | Auto auf die Strecke zurücksetzen |
 | C | Kamera wechseln: Verfolger · Weit · Cockpit |
 | L · T | Ideallinie · Zeitenliste |
 | Esc | Pause |
 
 Auf Touch-Geräten erscheinen virtuelle Tasten.
+
+**Boxengasse:** Mit P meldest du dich an die Box. Eine Anzeige oben zählt die Meter bis zur Einfahrt herunter und sagt, auf welcher Seite die Boxengasse liegt. Sie zweigt kurz vor Start und Ziel von der Strecke ab, hat eine Boxenmauer, eine Fahrspur mit Tempo 80 und eine Arbeitsspur vor den Garagen. Das Auto fährt dort geführt: Ein Mechanikerteam wechselt die Reifen, danach gibt die Ausfahrtsampel die Strecke frei. Verpasst du die Einfahrt, gilt der Wunsch für die nächste Runde; in der letzten Runde wird kein Stopp mehr gemacht. Die KI macht ihre Stopps nach demselben Prinzip.
 
 **Fahrgefühl:** Die Kamera hängt tief hinter dem Auto und schaut weit voraus, das Sichtfeld wächst mit dem Tempo. Es gibt keine Bremsanweisungen: Du bremst nach den Schildern an der Strecke (3 – 2 – 1 Striche bei 150, 100 und 50 m) und nach Gefühl. Wer Hilfe möchte, schaltet unter *Einstellungen → Fahrhilfen* die Kurvenvorschau oder die Ideallinie ein. Ohne WebGL fällt das Spiel automatisch auf eine einfache Draufsicht zurück.
 

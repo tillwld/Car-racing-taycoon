@@ -80,11 +80,12 @@ export const TIPS: Record<string, Tip> = {
   pit: {
     title: 'Boxenstopp im Rennen',
     icon: 'pit',
-    lead: 'Mit dem Reifenlager kannst du im Rennen frische Reifen holen.',
+    lead: 'Frische Reifen, Sprit und Reparaturen holst du dir in der Boxengasse. Das geht in jedem Rennen.',
     points: [
-      'Taste P (oder BOX am Handy) fordert den Stopp an. Du fährst in der nächsten Runde in die Boxengasse.',
-      'Im Fenster wählst du Reifen, Reparatur und Nachtanken.',
-      'Bei Regen lohnt sich ein Wechsel auf Intermediate- oder Wet-Reifen.',
+      'Taste P (oder BOX am Handy) meldet dich an der Box an. Die Boxengasse liegt kurz vor Start und Ziel auf der Innenseite der Strecke.',
+      'Oben im Bild siehst du, wie weit die Einfahrt noch ist. Halte dich zur Boxenseite und bremse. In der Gasse gilt Tempo 80, das erledigt das Auto für dich.',
+      'Dein Team wartet an der Box. Nach dem Stopp zeigt die Ampel, wann die Ausfahrt frei ist. In der letzten Runde lohnt sich kein Stopp mehr.',
+      'Mit dem Reifenlager wählst du selbst: Tasten 1 – 5 für die Reifen, F zum Nachtanken, E für Reparaturen. Bei Regen lohnen sich Intermediate oder Wet.',
     ],
   },
 
@@ -145,7 +146,7 @@ export const TIPS: Record<string, Tip> = {
       'Soft: viel Grip, aber schneller verschlissen. Hard: hält lange, hat weniger Grip. Medium liegt dazwischen.',
       'Intermediate und Wet brauchst du, wenn die Strecke nass ist.',
       'Tankmenge: Mehr Sprit macht das Auto schwerer und langsamer, zu wenig zwingt dich zum Nachtanken.',
-      'Boxenstopp: Im Rennen holst du dir mit Taste P frische Reifen. Das kostet einige Sekunden.',
+      'Boxenstopp: Im Rennen meldest du dich mit Taste P an der Box an und wählst dann Reifen (1 – 5), Nachtanken (F) und Reparatur (E).',
     ],
     next: 'Wähle im Team-Transporter bei „Strategie“ deine Startreifen.',
   },

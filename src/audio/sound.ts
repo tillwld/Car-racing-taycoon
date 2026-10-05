@@ -8,6 +8,7 @@ class SoundSystem {
   private engine: { o1: OscillatorNode; o2: OscillatorNode; filter: BiquadFilterNode; gain: GainNode } | null = null;
   private squeal: { src: AudioBufferSourceNode; filter: BiquadFilterNode; gain: GainNode } | null = null;
   private noiseBuf: AudioBuffer | null = null;
+  private lastEng = -1;
 
   ensure() {
     if (this.ctx) {
@@ -150,6 +151,9 @@ class SoundSystem {
   updateEngine(rpm01: number, throttle: number, slide: number, on: boolean) {
     if (!this.engine || !this.ctx) return;
     const t = this.ctx.currentTime;
+    // Parameter nur ca. 20-mal pro Sekunde setzen: jeder Aufruf legt Ereignisse im Audio-Thread an
+    if (t - this.lastEng < 0.045 && on) return;
+    this.lastEng = t;
     const f = 55 + rpm01 * 210;
     this.engine.o1.frequency.setTargetAtTime(f, t, 0.03);
     this.engine.o2.frequency.setTargetAtTime(f * 0.5, t, 0.03);

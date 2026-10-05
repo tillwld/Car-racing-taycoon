@@ -11,6 +11,8 @@ import { sound } from '../../audio/sound';
 interface Props {
   game: GameState;
   paused: boolean;
+  /** Gelände ist verdeckt (z. B. Fahrt auf der Teststrecke): nichts berechnen oder zeichnen */
+  hidden?: boolean;
   alerts: Partial<Record<StationId, string>>;
   /** Spot-ID, Plot-ID oder 'track': dort zeigt ein Pfeil hin */
   objective: string | null;
@@ -83,7 +85,7 @@ function circleRect(px: number, py: number, r: Rect, rad: number) {
   return dx * dx + dy * dy < rad * rad ? { cx, cy, dx, dy } : null;
 }
 
-export default function HubWorld({ game, paused, alerts, objective, onOpen, onBuy, onFreeDrive, walkTo }: Props) {
+export default function HubWorld({ game, paused, hidden = false, alerts, objective, onOpen, onBuy, onFreeDrive, walkTo }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const key = spotKey(game);
@@ -99,6 +101,8 @@ export default function HubWorld({ game, paused, alerts, objective, onOpen, onBu
   objRef.current = objective;
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
+  const hiddenRef = useRef(hidden);
+  hiddenRef.current = hidden;
   const onOpenRef = useRef(onOpen);
   onOpenRef.current = onOpen;
   const onBuyRef = useRef(onBuy);
@@ -490,8 +494,17 @@ export default function HubWorld({ game, paused, alerts, objective, onOpen, onBu
       }
     };
 
+    let lastDraw = 0;
     const loop = (now: number) => {
       raf = requestAnimationFrame(loop);
+      // Verdeckt (Rennen im Vordergrund): nichts tun, damit das Rennen die volle Leistung bekommt.
+      // Hinter einem Fenster reichen wenige Bilder pro Sekunde.
+      if (hiddenRef.current) {
+        last = now;
+        return;
+      }
+      if (pausedRef.current && now - lastDraw < 220) return;
+      lastDraw = now;
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       clock.current += dt;

@@ -42,7 +42,7 @@ export default function SettingsScreen({ onQuit }: { onQuit: () => void }) {
               <p className="muted" style={{ fontSize: 12.5 }}>Standardmäßig bekommst du keine Hinweise: Du bremst nach den Schildern an der Strecke und nach Gefühl. Wenn du magst, kannst du dir hier helfen lassen.</p>
               <Switch id="corners" on={s.cornerHints} onChange={(v) => set({ cornerHints: v })} label="Kurvenvorschau mit Bremshinweis einblenden" />
               <Switch id="line" on={s.showLine} onChange={(v) => set({ showLine: v })} label="Ideallinie mit Bremszonen auf der Strecke zeigen" />
-              <Switch id="steerassist" on={s.steerAssist} onChange={(v) => set({ steerAssist: v })} label="Lenkhilfe (verhindert Übersteuern bei vollem Einschlag)" />
+              <Switch id="steerassist" on={s.steerAssist} onChange={(v) => set({ steerAssist: v })} label="Lenkhilfe (stabilisiert das Heck, das Auto bricht seltener aus)" />
               <Switch id="brakeassist" on={s.brakeAssist} onChange={(v) => set({ brakeAssist: v })} label="Bremsassistent (bremst vor Kurven automatisch)" />
               <div className="field" style={{ marginTop: 4 }}>
                 <div className="row between">

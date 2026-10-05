@@ -2,6 +2,7 @@
 // überholen, verteidigen, machen Fehler und nutzen den Boost. Gesteuert wird über dieselbe Physik wie der Spieler.
 import type { CarSim, Input, RaceEngine } from './engine';
 import { pointAt, wrapIndex, type TrackGeometry } from './trackGeometry';
+import { PIT } from './params';
 
 export interface AIState {
   offsetCur: number;
@@ -194,12 +195,23 @@ export function aiControl(eng: RaceEngine, c: CarSim, dt: number): Input {
   }
   if (ai.mistakeKind === 'late') vt *= 1.09;
 
+  // Boxeneinfahrt: rechtzeitig zur Boxenseite und auf Limiter-Tempo herunter
+  let pitW = 0;
+  if (c.pitReq && c.pit === 'none' && !isQuali && c.lapsDone < eng.cfg.laps - 1) {
+    const toIn = (((eng.pitIn - c.s) % L) + L) % L;
+    if (toIn < 340) {
+      pitW = Math.max(0, Math.min(1, (340 - toIn) / 190));
+      vt = Math.min(vt, Math.sqrt(PIT.speed * PIT.speed + 2 * 24 * toIn));
+    }
+  }
+
   // seitlichen Versatz nachführen
   const maxLatRate = 3.2 * (0.7 + aggr * 0.6);
   const dOff = ai.offsetTarget - ai.offsetCur;
   ai.offsetCur += Math.sign(dOff) * Math.min(Math.abs(dOff), maxLatRate * dt);
   let latTarget = lineT + ai.offsetCur;
   latTarget = Math.max(-hwLim, Math.min(hwLim, latTarget));
+  if (pitW > 0) latTarget = latTarget * (1 - pitW) + eng.pitSide * (g.halfWidth - 2) * pitW;
 
   // Lenkung (Pure Pursuit)
   const pt = pointAt(g, sT, latTarget);

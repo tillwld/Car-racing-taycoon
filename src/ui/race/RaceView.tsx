@@ -4,7 +4,7 @@ import { RaceRenderer } from '../../race/renderer';
 import { RaceRenderer3D } from '../../race/renderer3d';
 import { bindKeyboard, isTouchDevice, newControls, readInput } from '../../race/input';
 import { computeProfile } from '../../race/ai';
-import { bestCompoundFor } from '../../race/params';
+import { bestCompoundFor, PIT } from '../../race/params';
 import { sound } from '../../audio/sound';
 import { COMPOUNDS, COMPOUND_KEYS, WEATHER_LABELS } from '../../data/catalog';
 import type { Compound, Settings } from '../../types';
@@ -25,7 +25,7 @@ interface Props {
   settings: Settings;
   qualiLaps?: number;
   /** Welche Rennfunktionen schon freigeschaltet sind (Boxenstopp, Sprit- und Schadensanzeige) */
-  features?: { pit: boolean; fuel: boolean; damage: boolean };
+  features?: { pit: boolean; fuel: boolean; damage: boolean; tyres?: boolean };
   /** Steuerungs-Hinweis zu Beginn einblenden */
   intro?: boolean;
   /** Bezeichnung der Session statt „Training“ (z. B. Teststrecke) */
@@ -59,6 +59,7 @@ interface Hud {
   phase: string;
   pitReq: PitRequest | null;
   inPit: boolean;
+  pit: PitHud | null;
   finished: boolean;
   sectors: { t: number; cls: string }[];
   delta: number | null;
@@ -66,6 +67,16 @@ interface Hud {
   timedLaps: number;
   wrongWay: boolean;
   corner: { dir: number; dist: number; speed: number; brakeNow: boolean; urgency: number } | null;
+}
+
+/** Anzeige zur Boxengasse: Anfahrt, Limiter, Standzeit, Ausfahrt */
+interface PitHud {
+  phase: 'call' | 'lane' | 'stop' | 'exit' | 'wait';
+  dist: number; // Meter bis zur Einfahrt (0 = jetzt einbiegen)
+  side: number; // +1 rechts, -1 links
+  timer: number;
+  total: number;
+  compound: Compound;
 }
 
 const STEP = 1 / 60;
@@ -78,7 +89,7 @@ type Rend = {
   renderMini: (c: HTMLCanvasElement, f: CarSim | null) => void;
   dispose?: () => void;
 };
-const ALL_FEATURES = { pit: true, fuel: true, damage: true };
+const ALL_FEATURES = { pit: true, fuel: true, damage: true, tyres: true };
 const CAMERAS = ['chase', 'high', 'cockpit'] as const;
 const CAMERA_LABEL = { chase: 'Verfolger', high: 'Weit', cockpit: 'Cockpit' } as const;
 
@@ -258,6 +269,7 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
     if (!eng) return;
     if (a === 'pause') setPause(!pausedRef.current);
     else if (a === 'pit') togglePit();
+    else if (a.startsWith('pit:')) pitOption(a.slice(4));
     else if (a === 'camera') cycleCamera();
     else if (a === 'mute') onSettings({ muted: !settingsRef.current.muted });
     else if (a === 'tower') setShowTower((v) => !v);
@@ -282,15 +294,35 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
 
   function togglePit() {
     const eng = engRef.current;
-    if (!eng || config.mode !== 'race' || !eng.human || eng.human.pit !== 'none' || !featRef.current.pit) return;
-    if (eng.human.pitReq) {
-      eng.requestPit(eng.human.cfg.id, null);
+    if (!eng || config.mode !== 'race' || !eng.human || eng.human.pit !== 'none' || eng.human.finished) return;
+    const c = eng.human;
+    if (c.pitReq) {
+      eng.requestPit(c.cfg.id, null);
       setPitOpen(false);
       eng.msg('Boxenstopp abgesagt.', 'info');
     } else {
-      eng.requestPit(eng.human.cfg.id, defaultPit());
-      setPitOpen(true);
-      eng.msg('Box, Box! Komm diese Runde rein.', 'warn');
+      if (c.lapsDone >= eng.cfg.laps - 1) {
+        eng.msg('Letzte Runde – ein Boxenstopp lohnt sich nicht mehr.', 'info');
+        return;
+      }
+      const req = defaultPit();
+      eng.requestPit(c.cfg.id, req);
+      setPitOpen(!!featRef.current.tyres);
+      const side = eng.pitSide > 0 ? 'rechts' : 'links';
+      eng.msg(`Box, Box! Die Boxengasse liegt ${side}. Neue Reifen: ${COMPOUNDS[req.compound].label}.`, 'warn');
+    }
+  }
+
+  // Tastatur im Boxenmenü: 1–5 Reifenmischung, F Nachtanken, E Reparatur
+  function pitOption(k: string) {
+    const eng = engRef.current;
+    const c = eng?.human;
+    if (!eng || !c || !c.pitReq || c.pit !== 'none' || !featRef.current.tyres) return;
+    if (k === 'fuel') updatePit({ refuel: !c.pitReq.refuel });
+    else if (k === 'repair') updatePit({ repair: !c.pitReq.repair });
+    else {
+      const comp = COMPOUND_KEYS[Number(k) - 1];
+      if (comp) updatePit({ compound: comp });
     }
   }
 
@@ -444,7 +476,7 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
               </div>
             )}
 
-            {h.corner && !h.inPit && h.phase !== 'countdown' && (
+            {h.corner && !h.inPit && !h.pit && h.phase !== 'countdown' && (
               <div className={`corner-box ${h.corner.brakeNow ? 'brake' : h.corner.urgency > 0.4 ? 'soon' : ''}`} aria-live="off">
                 <span className="corner-arrow" style={{ transform: `scaleX(${h.corner.dir > 0 ? 1 : -1})` }} aria-label={h.corner.dir > 0 ? 'Rechtskurve' : 'Linkskurve'}>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
@@ -460,6 +492,59 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
             )}
             {settings.cornerHints && h.corner?.brakeNow && !autopilot && canDrive && <div className="brake-flash" aria-hidden="true" />}
 
+            {h.pit && (
+              <div className={`pit-box ${h.pit.phase}`} aria-live="polite">
+                <span className="pit-ico" style={{ transform: h.pit.phase === 'call' ? `scaleX(${h.pit.side})` : undefined }}>
+                  {h.pit.phase === 'call' ? (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M5 12h13M13 6l6 6-6 6" />
+                    </svg>
+                  ) : h.pit.phase === 'stop' ? (
+                    <b>{h.pit.timer.toFixed(1)}</b>
+                  ) : (
+                    <b>80</b>
+                  )}
+                </span>
+                <span className="pit-txt">
+                  {h.pit.phase === 'call' && (
+                    <>
+                      <b>{h.pit.dist > 0 ? `BOX in ${Math.max(10, Math.round(h.pit.dist / 10) * 10)} m` : `JETZT ${h.pit.side > 0 ? 'RECHTS' : 'LINKS'} EINBIEGEN`}</b>
+                      <small>
+                        {h.pit.dist > 0
+                          ? `Halte dich ${h.pit.side > 0 ? 'rechts' : 'links'} und fahr in die Boxengasse. Dort gilt Tempo 80.`
+                          : 'Die Boxengasse zweigt jetzt von der Strecke ab.'}
+                      </small>
+                    </>
+                  )}
+                  {h.pit.phase === 'lane' && (
+                    <>
+                      <b>Boxengasse · Limiter 80 km/h</b>
+                      <small>Dein Team wartet an der Box. Du musst nichts tun.</small>
+                    </>
+                  )}
+                  {h.pit.phase === 'stop' && (
+                    <>
+                      <b>Boxenstopp läuft</b>
+                      <small>Neue Reifen: {COMPOUNDS[h.pit.compound].label}</small>
+                    </>
+                  )}
+                  {h.pit.phase === 'wait' && (
+                    <>
+                      <b>Ausfahrt rot</b>
+                      <small>Verkehr auf der Strecke – gleich geht es weiter.</small>
+                    </>
+                  )}
+                  {h.pit.phase === 'exit' && (
+                    <>
+                      <b>Ausfahrt frei</b>
+                      <small>Limiter endet an der Linie. Dann Gas geben und auf den Verkehr achten.</small>
+                    </>
+                  )}
+                </span>
+                {h.pit.phase === 'stop' && <span className="corner-bar"><i style={{ width: `${Math.round((1 - h.pit.timer / Math.max(0.1, h.pit.total)) * 100)}%` }} /></span>}
+              </div>
+            )}
+
             <div className="radio" aria-live="polite">
               {h.msgs.map((m, i) => (
                 <div key={`${m.t}-${i}`} className={m.kind}>
@@ -468,7 +553,7 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
               ))}
             </div>
 
-            {showIntro && !autopilot && canDrive && (
+            {showIntro && !autopilot && canDrive && !h.pit && (
               <div className="intro-box" role="note">
                 <b>So fährst du</b>
                 {touch ? (
@@ -505,7 +590,6 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
             )}
             {done && isRace && <div className="center-msg">Zielflagge</div>}
             {done && config.mode === 'quali' && <div className="center-msg" style={{ fontSize: 'clamp(28px,6vw,52px)' }}>Bestzeit {lapTime(h.best)}</div>}
-            {h.inPit && <div className="center-msg" style={{ fontSize: 28, top: '24%', color: 'var(--warn)' }}>Boxengasse</div>}
             {h.delta !== null && !isRace && h.lap > 0 && (
               <div className="center-msg" style={{ fontSize: 20, top: '18%', color: h.delta <= 0 ? 'var(--good)' : 'var(--bad)' }}>
                 {h.delta <= 0 ? '−' : '+'}
@@ -564,27 +648,28 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
               </div>
             </div>
 
-            {pitOpen && h.pitReq && !h.inPit && (
+            {pitOpen && h.pitReq && !h.inPit && features.tyres && (
               <div className="hud-box pit-panel">
                 <div className="row between">
-                  <b className="display" style={{ fontSize: 18 }}>Boxenstopp angefordert</b>
+                  <b className="display" style={{ fontSize: 18 }}>Boxenstopp geplant</b>
                   <button type="button" className="hud-btn" style={{ width: 32, height: 32 }} aria-label="Schließen" onClick={() => setPitOpen(false)}>
                     <Icon name="close" />
                   </button>
                 </div>
                 <div className="tyre-pick">
-                  {COMPOUND_KEYS.map((c) => (
-                    <button key={c} type="button" className={h.pitReq?.compound === c ? 'on' : ''} onClick={() => updatePit({ compound: c })} style={{ minWidth: 0, padding: '6px 8px' }}>
+                  {COMPOUND_KEYS.map((c, i) => (
+                    <button key={c} type="button" className={h.pitReq?.compound === c ? 'on' : ''} onClick={() => updatePit({ compound: c })}>
                       <TyreBadge c={c} sm />
-                      {COMPOUNDS[c].label}
+                      {COMPOUNDS[c].label.replace('Intermediate', 'Inter')}
+                      {!touch && <kbd>{i + 1}</kbd>}
                     </button>
                   ))}
                 </div>
                 <label className="row" style={{ fontSize: 14 }}>
-                  <input type="checkbox" checked={h.pitReq.repair} onChange={(e) => updatePit({ repair: e.target.checked })} /> Schäden reparieren
+                  <input type="checkbox" checked={h.pitReq.repair} onChange={(e) => updatePit({ repair: e.target.checked })} /> Schäden reparieren {!touch && <kbd>E</kbd>}
                 </label>
                 <label className="row" style={{ fontSize: 14 }}>
-                  <input type="checkbox" checked={h.pitReq.refuel} onChange={(e) => updatePit({ refuel: e.target.checked })} /> Nachtanken
+                  <input type="checkbox" checked={h.pitReq.refuel} onChange={(e) => updatePit({ refuel: e.target.checked })} /> Nachtanken {!touch && <kbd>F</kbd>}
                 </label>
                 <button type="button" className="btn danger sm" onClick={togglePit}>
                   Stopp absagen
@@ -625,7 +710,7 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
                   </div>
                   <div className="tz r">
                     <div style={{ display: 'grid', gap: 10 }}>
-                      {isRace && features.pit && (
+                      {isRace && (
                         <button type="button" className={`tbtn small ${h.pitReq ? 'on' : ''}`} onClick={togglePit}>
                           BOX
                         </button>
@@ -714,7 +799,8 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
               <kbd>S / ↓</kbd><span>Bremse (im Stand: rückwärts)</span>
               <kbd>A D / ← →</kbd><span>Lenken</span>
               <kbd>Leertaste</kbd><span>Boost (Energie für Überholmanöver)</span>
-              {features.pit && (<><kbd>P</kbd><span>Boxenstopp anfordern</span></>)}
+              {isRace && (<><kbd>P</kbd><span>Boxenstopp anfordern oder absagen</span></>)}
+              {isRace && features.tyres && (<><kbd>1 – 5 · F · E</kbd><span>im Boxenmenü: Reifen · Nachtanken · Reparatur</span></>)}
               <kbd>R</kbd><span>Auto auf die Strecke zurücksetzen</span>
               <kbd>C</kbd><span>Kamera wechseln (Verfolger · Weit · Cockpit)</span>
               <kbd>L · T</kbd><span>Ideallinie · Zeitenliste</span>
@@ -789,6 +875,22 @@ function cornerPreview(eng: RaceEngine, c: CarSim): Hud['corner'] {
   return { dir, dist, speed: vMin, brakeNow, urgency };
 }
 
+function pitHud(eng: RaceEngine, c: CarSim): PitHud | null {
+  if (eng.cfg.mode !== 'race' || !c.cfg.human) return null;
+  const side = eng.pitSide;
+  const compound = c.pitReq?.compound ?? c.tyre.compound;
+  if (c.pit === 'stopped') return { phase: 'stop', dist: 0, side, timer: Math.max(0, c.pitTimer), total: c.pitTotal, compound };
+  if (c.pit === 'exit') return { phase: eng.exitRed && c.speed < 1.5 ? 'wait' : 'exit', dist: 0, side, timer: 0, total: 0, compound };
+  if (c.pit !== 'none') return { phase: 'lane', dist: 0, side, timer: 0, total: 0, compound };
+  if (c.pitReq && !c.finished) {
+    const L = eng.geo.length;
+    if (eng.pitRelOf(c.s) < PIT.entryLen) return { phase: 'call', dist: 0, side, timer: 0, total: 0, compound };
+    const toIn = (((eng.pitIn - c.s) % L) + L) % L;
+    if (toIn < 650) return { phase: 'call', dist: toIn, side, timer: 0, total: 0, compound };
+  }
+  return null;
+}
+
 function makeHud(eng: RaceEngine, focus: CarSim, hints: boolean): Hud {
   const L = eng.geo.length;
   const order = eng.order();
@@ -839,6 +941,7 @@ function makeHud(eng: RaceEngine, focus: CarSim, hints: boolean): Hud {
     phase: eng.phase,
     pitReq: focus.pitReq,
     inPit: focus.pit !== 'none',
+    pit: pitHud(eng, focus),
     finished: focus.finished,
     sectors: [],
     delta,

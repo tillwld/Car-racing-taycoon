@@ -91,3 +91,17 @@ export function bestCompoundFor(w: number, dryChoice: Compound = 'medium'): Comp
   if (w > 0.28) return 'inter';
   return dryChoice;
 }
+
+/** Boxengasse: Maße in Metern (Querabstand zur Streckenkante) */
+export const PIT = {
+  speed: 22, // Limiter, ca. 80 km/h
+  wall: 3.4, // Boxenmauer: Abstand der Mauer zur Streckenkante
+  fast: 7.2, // Fahrspur
+  work: 11.6, // Arbeitsspur direkt vor den Boxen
+  door: 15.2, // Garagentore
+  barrier: 25, // Außenbegrenzung hinter den Garagen
+  entryLen: 70,
+  exitLen: 80,
+  boxGap: 22,
+  firstBox: 135, // erste Box liegt so viele Meter vor der Start-Ziel-Linie
+};

@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import type { CarSim, RaceEngine } from './engine';
+import { PIT } from './params';
 import { nearestIndexGlobal, pointAt, wrapIndex, type TrackGeometry } from './trackGeometry';
 import type { TrackDef, WeatherKind } from '../types';
 import { COMPOUNDS } from '../data/catalog';
@@ -189,9 +190,23 @@ export class RaceRenderer3D {
   private skidMesh!: THREE.Mesh;
   private skidPos!: Float32Array;
   private skidCol!: Float32Array;
+  private skidTick = 0;
+  private skidLen = -1;
+  private dprScale = 1;
+  private frameEma = 0;
+  private slowFrames = 0;
+  private lastScaleChange = 0;
   private rain!: THREE.Mesh;
   private rainPos!: Float32Array;
   private rainOff!: Float32Array;
+  private pitBoxes: { idx: number; color: string; x: number; y: number; tx: number; ty: number; blend: number }[] = [];
+  private crewBody!: THREE.InstancedMesh;
+  private crewHead!: THREE.InstancedMesh;
+  private lampRed!: THREE.Mesh;
+  private lampGreen!: THREE.Mesh;
+  private pitGuide!: THREE.Mesh;
+  private pitGuideMat!: THREE.MeshBasicMaterial;
+  private pitDummy = new THREE.Object3D();
   private lineDots: THREE.Points | null = null;
   private lineKey = 0;
   private soft!: THREE.Texture;
@@ -245,6 +260,15 @@ export class RaceRenderer3D {
     this.buildEffects();
     this.applyWeather(eng.weatherNow, 99);
     this.resize();
+    // Alle Shader vorab übersetzen (inklusive Regen), damit nichts während der Fahrt nachlädt
+    try {
+      const wasRain = this.rain.visible;
+      this.rain.visible = true;
+      this.renderer.compile(this.scene, this.camera);
+      this.rain.visible = wasRain;
+    } catch {
+      /* Kompilieren ist nur eine Optimierung */
+    }
   }
 
   // ---------- Aufbau ----------
@@ -403,26 +427,19 @@ export class RaceRenderer3D {
     }
   }
 
-  private pitGap() {
+  /** Liegt der Streckenindex im Bereich der Boxengasse (mit Rand in Metern)? */
+  private inPitZone(i: number, margin = 0) {
     const g = this.geo;
-    const iIn = Math.round(this.eng.pitIn / g.ds);
-    const iOut = Math.round(this.eng.pitOut / g.ds);
-    return (i: number) => {
-      const k = wrapIndex(i, g.n);
-      if (wrapIndex(k - (iIn - 4), g.n) <= 56) return true;
-      return wrapIndex(k - (iOut - 56), g.n) <= 62;
-    };
+    const rel = this.eng.pitRelOf(i * g.ds);
+    return rel <= this.eng.pitLen + margin || rel >= g.length - margin;
   }
 
   private buildBarriers() {
     const g = this.geo;
     const n = g.n;
-    const hw = g.halfWidth;
-    const wall = hw + this.track.runoff;
+    const e = this.eng;
     const street = this.track.street;
     const h = street ? 1.15 : 1.0;
-    const gap = this.pitGap();
-    const pitSide = Math.sign(this.eng.pitLat) || 1;
     const bTex = T.barrierTexture(street);
     const wallMat = new THREE.MeshStandardMaterial({ map: bTex, roughness: 0.85 });
     const topMat = new THREE.MeshStandardMaterial({ color: street ? '#c9d0d4' : '#1e2125', roughness: 0.8 });
@@ -431,27 +448,14 @@ export class RaceRenderer3D {
     const topGeos: THREE.BufferGeometry[] = [];
     const fenceGeos: THREE.BufferGeometry[] = [];
     for (const side of [-1, 1]) {
-      const runs: [number, number][] = [];
-      let st = -1;
-      for (let i = 0; i <= n; i++) {
-        const open = i < n && !(side === pitSide && gap(i));
-        if (open && st < 0) st = i;
-        if (!open && st >= 0) {
-          runs.push([st, Math.min(i, n)]);
-          st = -1;
-        }
-      }
-      for (const [a, b] of runs) {
-        if (b - a < 2) continue;
-        const fr = this.frames(a, b);
-        const lat = side * (wall - 0.3);
-        const inward = (f: Frame): [number, number, number] => [-side * f.nx, 0, -side * f.ny];
-        wallGeos.push(this.ribbon(fr, lat, lat, 0, h, 6, h, inward));
-        topGeos.push(this.ribbon(fr, lat, lat + side * 0.9, h, h, 6));
-        if (!street) {
-          const fl = side * (wall + 0.9);
-          fenceGeos.push(this.ribbon(fr, fl, fl, 0, 3.4, 1.7, 1.7, inward));
-        }
+      const fr = this.frames(0, n);
+      const lat = (k: number) => side * (e.outerWallAt(k * g.ds, side) - 0.3);
+      const inward = (f: Frame): [number, number, number] => [-side * f.nx, 0, -side * f.ny];
+      wallGeos.push(this.ribbon(fr, lat, lat, 0, h, 6, h, inward));
+      topGeos.push(this.ribbon(fr, lat, (k) => lat(k) + side * 0.9, h, h, 6));
+      if (!street) {
+        const fl = (k: number) => side * (e.outerWallAt(k * g.ds, side) + 0.9);
+        fenceGeos.push(this.ribbon(fr, fl, fl, 0, 3.4, 1.7, 1.7, inward));
       }
     }
     const addMerged = (geos: THREE.BufferGeometry[], mat: THREE.Material, shadow: boolean) => {
@@ -466,65 +470,81 @@ export class RaceRenderer3D {
     addMerged(fenceGeos, fenceMat, false);
   }
 
-  private pitFrames(from: number, to: number, step: number): Frame[] {
-    const g = this.geo;
-    const e = this.eng;
-    const L = g.length;
-    const total = (e.pitOut - e.pitIn + L) % L;
-    const out: Frame[] = [];
-    const sm = (t: number) => {
-      const x = Math.max(0, Math.min(1, t));
-      return x * x * (3 - 2 * x);
-    };
-    for (let d = from; d <= Math.min(to, total); d += step) {
-      const s = e.pitIn + d;
-      let lat = e.pitLat;
-      if (d < 80) lat = g.lineOff[wrapIndex(Math.round(e.pitIn / g.ds), g.n)] * (1 - sm(d / 80)) + e.pitLat * sm(d / 80);
-      else if (d > total - 90) lat = e.pitLat + (g.lineOff[wrapIndex(Math.round(e.pitOut / g.ds), g.n)] - e.pitLat) * sm((d - (total - 90)) / 90);
-      const p = pointAt(g, s, lat);
-      out.push({ x: p.x, y: p.y, nx: p.nx, ny: p.ny });
-    }
-    return out;
-  }
-
+  // ---------- Boxengasse ----------
+  // Querschnitt auf der Boxenseite: Strecke | Grünstreifen | Boxenmauer | Fahrspur | Arbeitsspur | Garagen | Außenmauer.
+  // Zufahrt und Ausfahrt sind Keile, die an der Streckenkante beginnen bzw. enden.
   private buildPit() {
     const g = this.geo;
     const e = this.eng;
-    const L = g.length;
-    const total = (e.pitOut - e.pitIn + L) % L;
-    const sign = Math.sign(e.pitLat) || 1;
-    const lane = this.pitFrames(0, total, 4);
-    const pitTex = T.noiseTexture('#4a5056', 26, 8, 21, 256);
-    const laneMesh = new THREE.Mesh(this.ribbon(lane, -4.3, 4.3, 0.014, 0.014, 12), this.overlayMat(pitTex, '#ffffff', -2));
+    const hw = g.halfWidth;
+    const side = e.pitSide;
+    const eL = PIT.entryLen;
+    const xL = PIT.exitLen;
+    const tot = e.pitLen;
+    const xs = tot - xL;
+    const i0 = Math.round(e.pitIn / g.ds);
+    const fr = this.frames(i0, i0 + Math.ceil(tot / g.ds) + 1);
+    const relK = (k: number) => (i0 + k) * g.ds - e.pitIn;
+    const sm = (t: number) => {
+      const x = clamp(t, 0, 1);
+      return x * x * (3 - 2 * x);
+    };
+    const wedge = (k: number) => {
+      const r = relK(k);
+      return r < eL ? sm(r / eL) : r > xs ? sm(1 - (r - xs) / xL) : 1;
+    };
+    const inner = (k: number) => side * (hw - 0.2 + (PIT.wall + 0.5) * wedge(k));
+    const outer = (k: number) => side * (hw + 0.5 + (PIT.door - 0.5) * wedge(k));
+
+    // Fahrbahn der Boxengasse
+    const pitTex = T.noiseTexture('#454b51', 24, 8, 21, 256);
+    const laneMat = this.overlayMat(pitTex, '#ffffff', -3);
+    const laneMesh = new THREE.Mesh(this.ribbon(fr, inner, outer, 0.016, 0.016, 12), laneMat);
     laneMesh.receiveShadow = true;
     this.scene.add(laneMesh);
-    // Linie an der Streckenseite der Boxengasse
-    const line = this.pitFrames(80, total - 90, 4);
-    const lineLat = -sign * 3.6;
-    this.scene.add(new THREE.Mesh(this.ribbon(line, lineLat - 0.12, lineLat + 0.12, 0.03, 0.03, 6), this.overlayMat(null, '#f2d34a', -4)));
+    // Markierungen: gelbe Trennlinie zwischen Fahr- und Arbeitsspur, weiße Randlinie
+    const yellow = this.overlayMat(null, '#f2d34a', -5);
+    const white = this.overlayMat(null, '#f0f0f0', -5);
+    const mid = side * (hw + (PIT.fast + PIT.work) / 2);
+    const midFr = fr.filter((_, k) => relK(k) > eL + 6 && relK(k) < xs - 6);
+    this.scene.add(new THREE.Mesh(this.ribbon(midFr, mid - 0.09, mid + 0.09, 0.03, 0.03, 6), yellow));
+    this.scene.add(new THREE.Mesh(this.ribbon(fr, (k) => outer(k) - side * 0.34, (k) => outer(k) - side * 0.14, 0.03, 0.03, 6), white));
     // Boxenmauer zwischen Strecke und Gasse
-    const wallFr = this.pitFrames(95, total - 100, 4);
-    const lat = sign * (Math.abs(e.pitLat) - 5.6);
-    const inward = (f: Frame): [number, number, number] => [-sign * f.nx, 0, -sign * f.ny];
+    const wallFr = fr.filter((_, k) => relK(k) >= eL && relK(k) <= xs);
+    const wl = side * (hw + PIT.wall);
+    const inward = (f: Frame): [number, number, number] => [-side * f.nx, 0, -side * f.ny];
     const pw = new THREE.Mesh(
-      mergeGeometries([this.ribbon(wallFr, lat, lat, 0, 1.0, 6, 1, inward), this.ribbon(wallFr, lat, lat + sign * 0.5, 1.0, 1.0, 6)], false)!,
-      new THREE.MeshStandardMaterial({ color: '#b4bcc2', roughness: 0.8 }),
+      mergeGeometries([this.ribbon(wallFr, wl, wl, 0, 1.05, 6, 1, inward), this.ribbon(wallFr, wl, wl + side * 0.5, 1.05, 1.05, 6), this.ribbon(wallFr, wl + side * 0.5, wl + side * 0.5, 1.05, 0, 6, 1, (f) => [side * f.nx, 0, side * f.ny])], false)!,
+      new THREE.MeshStandardMaterial({ color: '#b9c0c6', roughness: 0.8 }),
     );
     pw.castShadow = true;
     pw.receiveShadow = true;
     this.scene.add(pw);
-    // Garagen der Teams
-    const boxes = new Map<number, { color: string; name: string }>();
-    for (const c of e.cars) boxes.set(c.cfg.boxIndex, { color: c.cfg.color, name: c.cfg.short });
-    const bodyGeo = new THREE.BoxGeometry(20, 4.2, 6);
+    // rot-weiße Kante an der Mauer
+    const sk = this.overlayMat(T.kerbTexture(), '#ffffff', -5);
+    this.scene.add(new THREE.Mesh(this.ribbon(wallFr, wl - side * 0.95, wl - side * 0.1, 0.034, 0.034, 4), sk));
+
+    // Garagen und Boxenfelder der Teams
+    const boxes = new Map<number, { color: string; name: string; fg: string }>();
+    const lumOf = (hex: string) => {
+      const h = hex.replace('#', '');
+      return (0.299 * parseInt(h.slice(0, 2), 16) + 0.587 * parseInt(h.slice(2, 4), 16) + 0.114 * parseInt(h.slice(4, 6), 16)) / 255;
+    };
+    for (const c of e.cars) if (!boxes.has(c.cfg.boxIndex)) boxes.set(c.cfg.boxIndex, { color: c.cfg.color, name: c.cfg.name.split(' ').slice(-1)[0].toUpperCase(), fg: lumOf(c.cfg.color) > 0.6 ? '#111' : '#fff' });
+    const bodyGeo = new THREE.BoxGeometry(20, 4.2, 6.4);
     bodyGeo.translate(0, 2.1, 0);
-    const roofGeo = new THREE.BoxGeometry(21, 0.4, 7);
+    const roofGeo = new THREE.BoxGeometry(21, 0.4, 7.2);
     roofGeo.translate(0, 4.4, 0);
     const bodyMat = new THREE.MeshStandardMaterial({ color: '#7d878e', roughness: 0.8 });
     const roofMat = new THREE.MeshStandardMaterial({ color: '#2a2f34', roughness: 0.7 });
+    const doorMat = new THREE.MeshStandardMaterial({ color: '#16191c', roughness: 0.9 });
+    const padGeo = new THREE.PlaneGeometry(6.6, 3.4);
+    padGeo.rotateX(-Math.PI / 2);
+    const signGeo = new THREE.PlaneGeometry(7.6, 1.9);
+    this.pitBoxes = [];
     boxes.forEach((info, idx) => {
-      const s = g.length - 150 + idx * 26;
-      const p = pointAt(g, s, e.pitLat + sign * 7.5);
+      const s = e.boxS(idx);
+      const p = pointAt(g, s, side * (hw + PIT.door + 3.4));
       const grp = new THREE.Group();
       grp.position.set(p.x, 0, p.y);
       grp.rotation.y = -Math.atan2(p.ty, p.tx);
@@ -533,14 +553,165 @@ export class RaceRenderer3D {
       b.receiveShadow = true;
       const r = new THREE.Mesh(roofGeo, roofMat);
       r.castShadow = true;
-      // Front zur Boxengasse: Farbbalken und dunkles Tor
       const stripe = new THREE.Mesh(new THREE.BoxGeometry(20.2, 0.7, 0.2), new THREE.MeshStandardMaterial({ color: info.color, roughness: 0.5 }));
-      stripe.position.set(0, 3.5, -sign * 3.05);
-      const door = new THREE.Mesh(new THREE.BoxGeometry(16, 2.8, 0.2), new THREE.MeshStandardMaterial({ color: '#16191c', roughness: 0.9 }));
-      door.position.set(0, 1.4, -sign * 3.02);
-      grp.add(b, r, stripe, door);
+      stripe.position.set(0, 3.55, -side * 3.25);
+      const door = new THREE.Mesh(new THREE.BoxGeometry(16, 2.9, 0.2), doorMat);
+      door.position.set(0, 1.45, -side * 3.22);
+      const sign = new THREE.Mesh(signGeo, new THREE.MeshBasicMaterial({ map: T.bannerTexture(info.name, info.color, info.fg) }));
+      sign.scale.set(0.8, 0.8, 1);
+      sign.position.set(0, 3.6, -side * 3.38);
+      sign.rotation.y = side > 0 ? Math.PI : 0;
+      grp.add(b, r, stripe, door, sign);
       this.scene.add(grp);
+      // Haltefeld in der Arbeitsspur
+      const pp = pointAt(g, s, side * (hw + PIT.work));
+      const pad = new THREE.Mesh(padGeo, new THREE.MeshBasicMaterial({ color: info.color, transparent: true, opacity: 0.55, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6 }));
+      pad.position.set(pp.x, 0.036, pp.y);
+      pad.rotation.y = -Math.atan2(pp.ty, pp.tx);
+      this.scene.add(pad);
+      this.pitBoxes.push({ idx, color: info.color, x: pp.x, y: pp.y, tx: pp.tx, ty: pp.ty, blend: 0 });
     });
+    // Boxencrew: sechs Mechaniker je Box (vier Reifen, zwei Wagenheber), als Instanzen
+    const crewN = this.pitBoxes.length * 6;
+    const bodyG = new THREE.CylinderGeometry(0.27, 0.31, 0.95, 8);
+    bodyG.translate(0, 0.5, 0);
+    const headG = new THREE.SphereGeometry(0.19, 8, 6);
+    headG.translate(0, 1.2, 0);
+    this.crewBody = new THREE.InstancedMesh(bodyG, new THREE.MeshStandardMaterial({ roughness: 0.6 }), Math.max(1, crewN));
+    this.crewHead = new THREE.InstancedMesh(headG, new THREE.MeshStandardMaterial({ color: '#f1f3f4', roughness: 0.4 }), Math.max(1, crewN));
+    this.crewBody.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.crewHead.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.crewBody.frustumCulled = false;
+    this.crewHead.frustumCulled = false;
+    this.crewBody.castShadow = this.opts.quality === 'high';
+    const tc = new THREE.Color();
+    this.pitBoxes.forEach((b, bi) => {
+      tc.set(b.color);
+      for (let k = 0; k < 6; k++) this.crewBody.setColorAt(bi * 6 + k, tc);
+    });
+    this.scene.add(this.crewBody, this.crewHead);
+
+    // Ausfahrtsampel (rot/grün) an der Boxenmauer vor der Einmündung
+    const hold = pointAt(g, e.pitIn + xs - 2, side * (hw + PIT.wall + 0.6));
+    const light = new THREE.Group();
+    light.position.set(hold.x, 0, hold.y);
+    light.rotation.y = -Math.atan2(hold.ty, hold.tx);
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 3.0, 6), new THREE.MeshStandardMaterial({ color: '#2a2f34', roughness: 0.7 }));
+    pole.position.y = 1.5;
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.35, 1.05, 0.5), new THREE.MeshStandardMaterial({ color: '#15181b', roughness: 0.6 }));
+    head.position.y = 3.2;
+    this.lampRed = new THREE.Mesh(new THREE.SphereGeometry(0.17, 10, 8), new THREE.MeshBasicMaterial({ color: 0xff2a2a }));
+    this.lampGreen = new THREE.Mesh(new THREE.SphereGeometry(0.17, 10, 8), new THREE.MeshBasicMaterial({ color: 0x35ff6a }));
+    this.lampRed.position.set(-0.2, 3.4, 0);
+    this.lampGreen.position.set(-0.2, 3.0, 0);
+    light.add(pole, head, this.lampRed, this.lampGreen);
+    this.scene.add(light);
+
+    // Schilder an der Einfahrt
+    const signMat = (t: string, bg: string, fg: string) => new THREE.MeshBasicMaterial({ map: T.bannerTexture(t, bg, fg), side: THREE.DoubleSide });
+    const mkSign = (rel: number, lat: number, y: number, w: number, hgt: number, mat: THREE.Material) => {
+      const p = pointAt(g, e.pitIn + rel, lat);
+      const grp = new THREE.Group();
+      grp.position.set(p.x, 0, p.y);
+      grp.rotation.y = -Math.atan2(p.ty, p.tx);
+      const post = new THREE.CylinderGeometry(0.06, 0.06, y, 6);
+      post.translate(0, y / 2, 0);
+      const pm = new THREE.MeshStandardMaterial({ color: '#3a4046', roughness: 0.7 });
+      for (const z of [-w / 2 + 0.2, w / 2 - 0.2]) {
+        const m = new THREE.Mesh(post, pm);
+        m.position.z = z;
+        grp.add(m);
+      }
+      const board = new THREE.Mesh(new THREE.PlaneGeometry(w, hgt), mat);
+      board.position.set(0, y, 0);
+      board.rotation.y = -Math.PI / 2;
+      grp.add(board);
+      this.scene.add(grp);
+    };
+    mkSign(-70, side * (hw + 2.4), 3.2, 6.4, 1.6, signMat('BOXENEINFAHRT', '#101418', '#ffd23a'));
+    mkSign(-12, side * (hw + 2.4), 2.4, 3.6, 0.9, signMat('LIMIT 80', '#ffffff', '#c8161d'));
+
+    // Leitstreifen auf der Zufahrt: leuchtet grün, solange ein Boxenstopp angefordert ist
+    const guideFr = fr.filter((_, k) => relK(k) >= -4 && relK(k) <= eL + 4);
+    const gMid = (k: number) => (inner(k) + outer(k)) / 2;
+    this.pitGuideMat = new THREE.MeshBasicMaterial({ color: 0x3cff8a, transparent: true, opacity: 0.0, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -7, polygonOffsetUnits: -7 });
+    this.pitGuide = new THREE.Mesh(this.ribbon(guideFr, (k) => gMid(k) - side * 0.5, (k) => gMid(k) + side * 0.5, 0.04, 0.04, 6), this.pitGuideMat);
+    this.pitGuide.visible = false;
+    this.scene.add(this.pitGuide);
+  }
+
+  /** Boxencrew, Wagenheber und Ausfahrtsampel jedes Bild nachführen */
+  private updatePit(dt: number) {
+    const e = this.eng;
+    const cars = e.cars;
+    const d = this.pitDummy;
+    const g = this.geo;
+    const side = e.pitSide;
+    const hw = g.halfWidth;
+    (this.lampRed.material as THREE.MeshBasicMaterial).color.setHex(e.exitRed ? 0xff2a2a : 0x3a0c0c);
+    (this.lampGreen.material as THREE.MeshBasicMaterial).color.setHex(e.exitRed ? 0x0b3a18 : 0x35ff6a);
+    const t = this.time;
+    const rest = [-3.6, -2.2, -0.8, 0.8, 2.2, 3.6];
+    const wheel: [number, number][] = [[1.5, -1.8], [1.5, 1.8], [-1.5, -1.8], [-1.5, 1.8], [3.4, 0], [-3.4, 0]];
+    this.pitBoxes.forEach((b, bi) => {
+      let target = 0;
+      let car: CarSim | null = null;
+      for (const c of cars) {
+        if (c.cfg.boxIndex !== b.idx || c.pit === 'none' || c.pitDrive) continue;
+        let a = 0;
+        if (c.pit === 'stopped') {
+          const el = c.pitTotal - c.pitTimer;
+          a = Math.max(0.05, Math.min(1, el / 0.5, c.pitTimer / 0.5));
+          car = c;
+        } else if (c.pit === 'toBox') {
+          const toBox = c.pitStopRel - c.pitRel;
+          a = clamp((30 - toBox) / 30, 0, 1) * 0.35;
+        } else if (c.pit === 'exit') a = clamp(1 - (c.pitRel - c.pitStopRel) / 12, 0, 1) * 0.35;
+        target = Math.max(target, a);
+      }
+      b.blend += (target - b.blend) * Math.min(1, dt * 9);
+      const work = b.blend;
+      // Ruheposition: vor dem Garagentor
+      const base = pointAt(g, e.boxS(b.idx), side * (hw + PIT.door - 0.7));
+      for (let k = 0; k < 6; k++) {
+        const hx = base.x + base.tx * rest[k];
+        const hy = base.y + base.ty * rest[k];
+        let x = hx, y = hy, bob = 0;
+        if (car && work > 0.01) {
+          const c = car;
+          const cx = Math.cos(c.h), cz = Math.sin(c.h);
+          const [al, ac] = wheel[k];
+          const wx = c.x + cx * al - cz * ac;
+          const wy = c.y + cz * al + cx * ac;
+          const m = Math.min(1, work);
+          x = hx + (wx - hx) * m;
+          y = hy + (wy - hy) * m;
+          bob = k < 4 ? Math.sin(t * 38 + k * 1.7) * 0.035 * m : 0;
+        } else if (work > 0.01) {
+          // Auto kommt: Mechaniker treten an die Arbeitsspur
+          const wx = hx - base.nx * side * 2.2;
+          const wy = hy - base.ny * side * 2.2;
+          x = hx + (wx - hx) * Math.min(1, work * 2.2);
+          y = hy + (wy - hy) * Math.min(1, work * 2.2);
+        }
+        d.position.set(x, bob, y);
+        d.rotation.set(0, 0, 0);
+        d.scale.set(1, 1, 1);
+        d.updateMatrix();
+        this.crewBody.setMatrixAt(bi * 6 + k, d.matrix);
+        this.crewHead.setMatrixAt(bi * 6 + k, d.matrix);
+      }
+    });
+    this.crewBody.instanceMatrix.needsUpdate = true;
+    this.crewHead.instanceMatrix.needsUpdate = true;
+    if (this.crewBody.instanceColor) this.crewBody.instanceColor.needsUpdate = true;
+  }
+
+  /** Leitstreifen zur Zufahrt, wenn der beobachtete Fahrer einen Stopp angefordert hat */
+  private updatePitGuide(f: CarSim) {
+    const show = !!f.pitReq && f.pit === 'none' && f.cfg.human && this.eng.cfg.mode === 'race';
+    this.pitGuide.visible = show;
+    if (show) this.pitGuideMat.opacity = 0.35 + 0.3 * Math.sin(this.time * 6);
   }
 
   private buildStartLine() {
@@ -624,6 +795,7 @@ export class RaceRenderer3D {
         if (dist > gapM - 20) continue;
         const i = wrapIndex(e - Math.round(dist / g.ds), n);
         const off = Math.min(g.halfWidth + 3.6, wall - 2) * outside;
+        if (outside === this.eng.pitSide && this.inPitZone(i, 40)) continue;
         const grp = new THREE.Group();
         grp.position.set(g.x[i] + g.nx[i] * off, 0, g.y[i] + g.ny[i] * off);
         grp.rotation.y = Math.atan2(-g.tx[i], -g.ty[i]);
@@ -660,6 +832,10 @@ export class RaceRenderer3D {
       const straight = Math.abs(g.k[i]) < 1 / 260;
       if (!straight) continue;
       const side = count % 2 ? 1 : -1;
+      if (side === this.eng.pitSide && this.inPitZone(i, 40)) {
+        count++;
+        continue;
+      }
       const lat = side * (wall + (this.track.street ? 0.6 : 1.6));
       const m = new THREE.Mesh(geo, mats[count % mats.length]);
       m.position.set(g.x[i] + g.nx[i] * lat, this.track.street ? 1.9 : 1.6, g.y[i] + g.ny[i] * lat);
@@ -674,8 +850,6 @@ export class RaceRenderer3D {
     const g = this.geo;
     const wall = g.halfWidth + this.track.runoff;
     const pts: { x: number; y: number }[] = [];
-    const pitStart = Math.round(this.eng.pitIn / g.ds) - 30;
-    const pitSpan = Math.round(((this.eng.pitOut - this.eng.pitIn + g.length) % g.length) / g.ds) + 60;
     let tries = 0;
     while (pts.length < count && tries < count * 8) {
       tries++;
@@ -694,8 +868,8 @@ export class RaceRenderer3D {
       const j = nearestIndexGlobal(g, x, y);
       const d = Math.hypot(x - g.x[j], y - g.y[j]);
       if (d < wall + minOut) continue;
-      const inPit = wrapIndex(j - pitStart, g.n) <= pitSpan && Math.abs(d - Math.abs(this.eng.pitLat)) < 26;
-      if (inPit) continue;
+      const sideLat = (x - g.x[j]) * g.nx[j] + (y - g.y[j]) * g.ny[j];
+      if (sideLat * this.eng.pitSide > 0 && this.inPitZone(j, 60) && d < g.halfWidth + PIT.barrier + 34) continue;
       pts.push({ x, y });
     }
     return pts;
@@ -948,7 +1122,7 @@ export class RaceRenderer3D {
     const r = this.canvas.getBoundingClientRect();
     this.w = Math.max(1, r.width);
     this.h = Math.max(1, r.height);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.opts.quality === 'high' ? 2 : 1.25));
+    this.renderer.setPixelRatio(Math.max(0.5, Math.min(window.devicePixelRatio || 1, this.opts.quality === 'high' ? 1.5 : 1.25) * this.dprScale));
     this.renderer.setSize(this.w, this.h, false);
     this.camera.aspect = this.w / this.h;
     this.camera.updateProjectionMatrix();
@@ -958,28 +1132,38 @@ export class RaceRenderer3D {
     const g = this.geo;
     const prof = car.ai.profile;
     const cnt = Math.floor(g.n / 3);
-    const pos = new Float32Array(cnt * 3);
-    const col = new Float32Array(cnt * 3);
-    const green = new THREE.Color('#50e68c');
-    const red = new THREE.Color('#ff4646');
+    // Geometrie nur einmal anlegen, danach nur die Farben (Bremszonen) in place aktualisieren: keine Speicher- und GPU-Zuweisungen pro Sekunde
+    if (!this.lineDots) {
+      const pos = new Float32Array(cnt * 3);
+      for (let k = 0; k < cnt; k++) {
+        const i = k * 3;
+        pos[k * 3] = g.x[i] + g.nx[i] * g.lineOff[i];
+        pos[k * 3 + 1] = 0.09;
+        pos[k * 3 + 2] = g.y[i] + g.ny[i] * g.lineOff[i];
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(cnt * 3), 3));
+      this.lineDots = new THREE.Points(geo, new THREE.PointsMaterial({ size: 0.9, vertexColors: true, transparent: true, opacity: 0.85, depthWrite: false, map: this.soft, alphaTest: 0.05 }));
+      this.lineDots.frustumCulled = false;
+      this.scene.add(this.lineDots);
+    }
+    const col = this.lineDots.geometry.getAttribute('color') as THREE.BufferAttribute;
+    const arr = col.array as Float32Array;
+    let changed = false;
     for (let k = 0; k < cnt; k++) {
       const i = k * 3;
       const j = wrapIndex(i + 6, g.n);
       const brake = prof[j] < prof[i] - 0.8;
-      pos.set([g.x[i] + g.nx[i] * g.lineOff[i], 0.09, g.y[i] + g.ny[i] * g.lineOff[i]], k * 3);
-      const c = brake ? red : green;
-      col.set([c.r, c.g, c.b], k * 3);
+      const r = brake ? 1 : 0.314, gg = brake ? 0.275 : 0.902, b = brake ? 0.275 : 0.549;
+      if (arr[k * 3] !== r || arr[k * 3 + 1] !== gg || arr[k * 3 + 2] !== b) {
+        arr[k * 3] = r;
+        arr[k * 3 + 1] = gg;
+        arr[k * 3 + 2] = b;
+        changed = true;
+      }
     }
-    if (this.lineDots) {
-      this.scene.remove(this.lineDots);
-      this.lineDots.geometry.dispose();
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    this.lineDots = new THREE.Points(geo, new THREE.PointsMaterial({ size: 0.9, vertexColors: true, transparent: true, opacity: 0.85, depthWrite: false, map: this.soft, alphaTest: 0.05 }));
-    this.lineDots.frustumCulled = false;
-    this.scene.add(this.lineDots);
+    if (changed) col.needsUpdate = true;
     this.lineKey++;
   }
 
@@ -1014,13 +1198,41 @@ export class RaceRenderer3D {
     const f = focus ?? eng.cars[0];
     if (!f) return;
     dt = clamp(dt, 0, 0.1);
+    this.adaptQuality(dt);
     this.time += dt;
     this.applyWeather(eng.weatherNow, dt);
     this.updateCamera(f, dt);
     this.updateCars(f, dt);
+    this.updatePit(dt);
+    this.updatePitGuide(f);
     this.updateEffects(f, dt);
     this.updateSun(f);
     this.renderer.render(this.scene, this.camera);
+  }
+
+  /** Läuft das Spiel zu langsam, wird die Auflösung (und zuletzt der Schattenwurf) schrittweise gesenkt, damit die Fahrt flüssig bleibt */
+  private adaptQuality(dt: number) {
+    if (dt <= 0) return;
+    this.frameEma += (dt - this.frameEma) * 0.08;
+    this.lastScaleChange += dt;
+    if (this.frameEma > 0.026) this.slowFrames++;
+    else this.slowFrames = Math.max(0, this.slowFrames - 2);
+    if (this.slowFrames > 70 && this.lastScaleChange > 2.5) {
+      this.slowFrames = 0;
+      this.lastScaleChange = 0;
+      if (this.dprScale > 0.56) {
+        this.dprScale = Math.max(0.55, this.dprScale - 0.18);
+        this.resize();
+      } else if (this.renderer.shadowMap.enabled) {
+        this.renderer.shadowMap.enabled = false;
+        this.sun.castShadow = false;
+        this.scene.traverse((o) => {
+          const m = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+          if (Array.isArray(m)) m.forEach((x) => (x.needsUpdate = true));
+          else if (m) m.needsUpdate = true;
+        });
+      }
+    }
   }
 
   private updateSun(f: CarSim) {
@@ -1096,6 +1308,10 @@ export class RaceRenderer3D {
       v.roll += (rollT - v.roll) * k;
       v.pitch += (pitchT - v.pitch) * k;
       p.tilt.rotation.set(v.roll, 0, v.pitch);
+      // Wagenheber: Auto hebt sich während des Reifenwechsels
+      let lift = 0;
+      if (c.pit === 'stopped' && c.pitTotal > 0) lift = 0.13 * clamp(Math.min((c.pitTotal - c.pitTimer) / 0.45, c.pitTimer / 0.45), 0, 1);
+      p.tilt.position.y = lift;
       v.wheelA += (c.speed * dt) / 0.34;
       for (const w of p.wheels) {
         w.spin.rotation.z = -v.wheelA;
@@ -1177,29 +1393,42 @@ export class RaceRenderer3D {
     }
     this.sparks.update(dt);
 
-    // Reifenspuren
+    // Reifenspuren: ohne temporäre Arrays direkt in die Puffer schreiben, die Fläche nur gelegentlich auffrischen
     const skids = eng.skids;
-    const m = Math.min(skids.length, 900);
-    let q = 0;
-    for (let i = 0; i < m; i++) {
-      const s = skids[skids.length - m + i];
-      if (s.life <= 0) continue;
-      const cx = Math.cos(s.h), cy = Math.sin(s.h);
-      const nx = -cy, ny = cx;
-      const al = Math.min(1, s.life) * 0.5;
-      for (const side of [-0.8, 0.8]) {
-        const ax = s.x - cx * 1.6 + nx * side, ay = s.y - cy * 1.6 + ny * side;
-        const bx = s.x - cx * 0.2 + nx * side, by = s.y - cy * 0.2 + ny * side;
-        const o = q * 12;
-        this.skidPos.set([ax - nx * 0.17, 0.045, ay - ny * 0.17, ax + nx * 0.17, 0.045, ay + ny * 0.17, bx - nx * 0.17, 0.045, by - ny * 0.17, bx + nx * 0.17, 0.045, by + ny * 0.17], o);
-        const co = q * 16;
-        for (let k = 0; k < 4; k++) this.skidCol.set([0.02, 0.02, 0.02, al], co + k * 4);
-        q++;
+    this.skidTick++;
+    if (this.skidTick % 4 === 0 || skids.length !== this.skidLen) {
+      this.skidLen = skids.length;
+      const m = Math.min(skids.length, 900);
+      const sp = this.skidPos, sc = this.skidCol;
+      let q = 0;
+      for (let i = 0; i < m; i++) {
+        const s = skids[skids.length - m + i];
+        if (s.life <= 0) continue;
+        const cx = Math.cos(s.h), cy = Math.sin(s.h);
+        const nx = -cy, ny = cx;
+        const al = Math.min(1, s.life) * 0.5;
+        for (let side = -0.8; side < 1; side += 1.6) {
+          const ax = s.x - cx * 1.6 + nx * side, ay = s.y - cy * 1.6 + ny * side;
+          const bx = s.x - cx * 0.2 + nx * side, by = s.y - cy * 0.2 + ny * side;
+          const o = q * 12;
+          sp[o] = ax - nx * 0.17; sp[o + 1] = 0.045; sp[o + 2] = ay - ny * 0.17;
+          sp[o + 3] = ax + nx * 0.17; sp[o + 4] = 0.045; sp[o + 5] = ay + ny * 0.17;
+          sp[o + 6] = bx - nx * 0.17; sp[o + 7] = 0.045; sp[o + 8] = by - ny * 0.17;
+          sp[o + 9] = bx + nx * 0.17; sp[o + 10] = 0.045; sp[o + 11] = by + ny * 0.17;
+          const co = q * 16;
+          for (let k = 0; k < 4; k++) {
+            sc[co + k * 4] = 0.02;
+            sc[co + k * 4 + 1] = 0.02;
+            sc[co + k * 4 + 2] = 0.02;
+            sc[co + k * 4 + 3] = al;
+          }
+          q++;
+        }
       }
+      this.skidMesh.geometry.setDrawRange(0, q * 6);
+      (this.skidMesh.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
+      (this.skidMesh.geometry.getAttribute('color') as THREE.BufferAttribute).needsUpdate = true;
     }
-    this.skidMesh.geometry.setDrawRange(0, q * 6);
-    (this.skidMesh.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
-    (this.skidMesh.geometry.getAttribute('color') as THREE.BufferAttribute).needsUpdate = true;
 
     // Regen
     const intensity = this.cur.rain;
@@ -1220,7 +1449,11 @@ export class RaceRenderer3D {
         const dl = Math.hypot(dx, dz) || 1;
         const wx = (-dz / dl) * 0.025, wz = (dx / dl) * 0.025;
         const len = 1.5 + intensity * 0.5;
-        this.rainPos.set([x - wx, y + len, z - wz, x + wx, y + len, z + wz, x - wx, y, z - wz, x + wx, y, z + wz], i * 12);
+        const rp = this.rainPos, ro = i * 12;
+        rp[ro] = x - wx; rp[ro + 1] = y + len; rp[ro + 2] = z - wz;
+        rp[ro + 3] = x + wx; rp[ro + 4] = y + len; rp[ro + 5] = z + wz;
+        rp[ro + 6] = x - wx; rp[ro + 7] = y; rp[ro + 8] = z - wz;
+        rp[ro + 9] = x + wx; rp[ro + 10] = y; rp[ro + 11] = z + wz;
       }
       this.rain.geometry.setDrawRange(0, act * 6);
       (this.rain.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;

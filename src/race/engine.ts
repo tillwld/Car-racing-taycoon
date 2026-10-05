@@ -3,9 +3,11 @@
 import type { Compound, TrackDef, WeatherKind, WeatherSegment } from '../types';
 import type { TrackGeometry } from './trackGeometry';
 import { nearestIndex, nearestIndexGlobal, pointAt, wrapIndex } from './trackGeometry';
-import { AIR_TEMP, compoundGrip, TEMP_WINDOW, WETNESS, bestCompoundFor, type DriverParams, type EntryStrategy, type PhysicsParams } from './params';
+import { PIT, AIR_TEMP, compoundGrip, TEMP_WINDOW, WETNESS, bestCompoundFor, type DriverParams, type EntryStrategy, type PhysicsParams } from './params';
 import { aiControl, computeProfile, type AIState } from './ai';
 import { COMPOUNDS } from '../data/catalog';
+
+export { PIT };
 
 export type DamageKey = 'engine' | 'gearbox' | 'brakes' | 'frontWing' | 'suspension';
 export type Damage = Record<DamageKey, number>;
@@ -67,6 +69,7 @@ export interface RaceMessage {
 
 type PitPhase = 'none' | 'entry' | 'toBox' | 'stopped' | 'exit';
 
+
 export interface CarSim {
   cfg: EntryConfig;
   x: number;
@@ -98,12 +101,21 @@ export interface CarSim {
   slide: number;
   latUse: number;
   offTrack: number; // 0 Strecke, 1 Randstein, 2 Gras/Auslauf
+  grass: number; // 0..1 gleitender Übergang zum Gras (Grip wechselt nicht schlagartig)
+  yaw: number; // Gierrate des Spielerautos (rad/s)
   pit: PitPhase;
   pitReq: PitRequest | null;
-  pitTimer: number;
+  pitTimer: number; // verbleibende Standzeit
+  pitTotal: number; // gesamte Standzeit des laufenden Stopps (für die Boxencrew)
+  pitRel: number; // Weg seit der Einfahrtslinie
   pitLatStart: number;
-  pitStartS: number;
-  pitDone: boolean;
+  pitCaptureRel: number; // Weg ab Einfahrt, an dem das Auto erfasst wurde
+  pitHeadErr: number; // Winkelversatz beim Einfahren, wird auf der Zufahrt abgebaut
+  pitStopRel: number; // Halteposition an der Box (relativ zur Einfahrt)
+  pitDrive: boolean; // Durchfahrt ohne Stopp
+  pitWait: number; // Wartezeit an der Ausfahrtsampel
+  pitDecided: boolean; // KI: Entscheidung für diese Runde getroffen
+  pitMissed: boolean; // Einfahrt in dieser Runde verpasst (Hinweis schon gezeigt)
   pits: number;
   lastPitTime: number;
   finished: boolean;
@@ -123,7 +135,10 @@ export interface CarSim {
   lapTimes: number[];
 }
 
-const PIT_SPEED = 22;
+/** Abstimmung des Fahrgefühls (Spielerauto) */
+export const PHYS = { rise: 5.0, riseSpd: 0.3, ret: 1.9, exp: 1.0, kd: 1.0, kdOff: 1.12, lag: 0.05, osP: 0.22, osB: 0.16, kStab: 2.0, kStabOff: 0.8, stabSteer: 0.6, accelCirc: 0.3 };
+
+const PIT_SPEED = PIT.speed;
 const CAR_R = 1.1;
 const CAR_OFF = 1.45;
 
@@ -143,9 +158,13 @@ export class RaceEngine {
   messages: RaceMessage[] = [];
   fastestLap = { id: '', time: Infinity };
   bestSectorsOverall = [Infinity, Infinity, Infinity];
-  pitIn: number;
-  pitOut: number;
-  pitLat: number;
+  pitIn: number; // Einfahrtslinie (Anfang der Zufahrt)
+  pitOut: number; // Ende der Ausfahrt
+  pitSide: number; // Seite der Boxengasse (+1 rechts vom Fahrer, -1 links)
+  pitLat: number; // Mitte der Fahrspur der Boxengasse
+  pitWorkLat: number; // Arbeitsspur an den Boxen
+  pitLen: number; // Länge der gesamten Boxengasse
+  exitRed = false; // Ausfahrtsampel
   humanInput: Input = { throttle: 0, brake: 0, steer: 0, boost: false };
   humanId: string | null = null;
   autopilotHuman = false;
@@ -160,9 +179,12 @@ export class RaceEngine {
     this.cfg = cfg;
     this.geo = cfg.geo;
     const L = this.geo.length;
-    this.pitIn = L - 240;
-    this.pitOut = 240;
-    this.pitLat = this.geo.turnSign * (this.geo.halfWidth + cfg.track.runoff + 8);
+    this.pitSide = this.geo.turnSign >= 0 ? 1 : -1;
+    this.pitIn = L - 230;
+    this.pitOut = 230;
+    this.pitLen = 460;
+    this.pitLat = this.pitSide * (this.geo.halfWidth + PIT.fast);
+    this.pitWorkLat = this.pitSide * (this.geo.halfWidth + PIT.work);
     this.raceDist = cfg.laps * L;
     this.wearDist = Math.max(cfg.wearScaleLaps ?? cfg.laps, 6) * L;
     this.weatherNow = cfg.weather[0]?.kind ?? 'sunny';
@@ -244,12 +266,21 @@ export class RaceEngine {
       slide: 0,
       latUse: 0,
       offTrack: 0,
+      grass: 0,
+      yaw: 0,
       pit: 'none',
       pitReq: null,
       pitTimer: 0,
+      pitTotal: 0,
+      pitRel: 0,
       pitLatStart: 0,
-      pitStartS: 0,
-      pitDone: false,
+      pitCaptureRel: 0,
+      pitHeadErr: 0,
+      pitStopRel: 0,
+      pitDrive: false,
+      pitWait: 0,
+      pitDecided: false,
+      pitMissed: false,
       pits: 0,
       lastPitTime: 0,
       finished: false,
@@ -298,6 +329,8 @@ export class RaceEngine {
     c.vx = c.vy = 0;
     c.speed = 0;
     c.steer = 0;
+    c.yaw = 0;
+    c.grass = 0;
     c.slide = 0;
     c.lat = g.lineOff[i];
     this.msg('Zurück auf die Strecke gesetzt.', 'info', id);
@@ -318,7 +351,13 @@ export class RaceEngine {
     if (kind !== this.weatherNow) {
       const wasDry = WETNESS[this.weatherNow] === 0;
       this.weatherNow = kind;
-      if (wasDry && WETNESS[kind] > 0) this.msg('Regen setzt ein! Strecke wird nass.', 'warn');
+      if (wasDry && WETNESS[kind] > 0) {
+        this.msg('Regen setzt ein! Strecke wird nass.', 'warn');
+        const h = this.human;
+        if (h && this.cfg.mode === 'race' && !this.autopilotHuman && ['soft', 'medium', 'hard'].includes(h.tyre.compound)) {
+          this.msg('Mit Slicks wird es rutschig: Taste P (oder BOX) ruft dich zum Reifenwechsel an die Box.', 'warn', h.cfg.id);
+        }
+      }
       else if (WETNESS[kind] === 0) this.msg('Der Regen hört auf, die Strecke trocknet ab.', 'info');
       else if (kind === 'heavyRain') this.msg('Starker Regen! Wet-Reifen empfohlen.', 'warn');
       this.onEvent?.({ type: 'weather', data: kind });
@@ -350,12 +389,14 @@ export class RaceEngine {
     const fuelKg = Math.max(0, c.fuel) * 70;
     const massF = (p.weight + 80) / (p.weight + 80 + fuelKg);
     const tyreG = this.tyreGrip(c);
-    const surf = c.offTrack === 2 ? (this.cfg.track.street ? 0.82 : 0.55) : c.offTrack === 1 ? 0.95 : 1;
+    const grassGrip = this.cfg.track.street ? 0.82 : 0.55;
+    const surf = (1 - c.grass * (1 - grassGrip)) * (c.offTrack === 1 ? 0.97 : 1);
     const gripMul = tyreG * surf * (1 - 0.05 * d.frontWing) * (1 - 0.18 * d.suspension);
     return {
       vmax: p.vmax * (1 - 0.15 * d.engine) * (1 + c.slip * 0.055 + (c.boost ? 0.035 : 0)) * (c.tyre.wear > 0.95 ? 0.85 : 1),
       accel: p.accel * (1 - 0.25 * d.gearbox) * (1 - 0.1 * d.engine) * massF * (c.boost ? 1.14 : 1),
-      brake: p.brake * (1 - 0.4 * d.brakes),
+      // Bremsen hängt wie alles am Reifengrip: bei Nässe wird der Bremsweg deutlich länger
+      brake: p.brake * (1 - 0.4 * d.brakes) * Math.min(1, gripMul / 0.95),
       mech: p.mechGrip * gripMul,
       aero: p.aeroGrip * gripMul * (1 - 0.55 * d.frontWing),
       gripMul,
@@ -387,6 +428,7 @@ export class RaceEngine {
     }
     this.time += dt;
     this.updateWeather(dt);
+    this.updateExitLight();
     for (const c of this.cars) {
       if (c.dnf) continue;
       this.stepCar(c, dt);
@@ -449,10 +491,18 @@ export class RaceEngine {
     }
     if (c.fuel <= 0) inp = { ...inp, throttle: 0, boost: false };
 
-    // Lenken glätten
-    const sr = isHuman ? 4.2 * this.cfg.steerSensitivity : 6;
-    const ds = inp.steer - c.steer;
-    c.steer += Math.sign(ds) * Math.min(Math.abs(ds), sr * dt * (isHuman && Math.abs(inp.steer) < 0.01 ? 1.6 : 1));
+    // Lenken glätten: Tastatur-Einschlag baut sich auf und wird mit dem Tempo langsamer (kein Zucken bei hoher Geschwindigkeit)
+    {
+      const ds = inp.steer - c.steer;
+      let rate: number;
+      if (isHuman) {
+        const spF = Math.max(0, Math.min(1, c.speed / Math.max(30, c.cfg.car.vmax)));
+        const rise = PHYS.rise * this.cfg.steerSensitivity * (1 - PHYS.riseSpd * spF);
+        const toward0 = Math.abs(inp.steer) < Math.abs(c.steer) || inp.steer * c.steer < 0;
+        rate = toward0 ? rise * PHYS.ret : rise;
+      } else rate = 6;
+      c.steer += Math.sign(ds) * Math.min(Math.abs(ds), rate * dt);
+    }
     c.throttle = inp.throttle;
     c.brake = inp.brake;
     c.boost = inp.boost && c.ers > 0.02 && inp.throttle > 0.5;
@@ -474,7 +524,14 @@ export class RaceEngine {
         aLong += c.throttle * e.accel * Math.max(-0.6, 1 - ratio * ratio);
       } else aLong += c.throttle * 9;
     }
-    const brakeCap = Math.min(e.brake, lat * 1.35 + 4);
+    // Traktion: bei Nässe können die Reifen weniger Vortrieb übertragen
+    let accelUse = 0;
+    if (aLong > 0) {
+      const tcap = lat * 1.2 + 0.8;
+      if (aLong > tcap) aLong = tcap;
+      accelUse = Math.min(1, aLong / Math.max(4, lat));
+    }
+    const brakeCap = Math.min(e.brake, lat * 1.35 + 4 * Math.min(1, e.gripMul / 0.95));
     if (c.brake > 0) {
       if (vF > 0.5) aLong -= c.brake * brakeCap;
       else if (vF > -6 && isHuman && c.throttle < 0.1) aLong -= c.brake * 5; // rückwärts
@@ -483,13 +540,13 @@ export class RaceEngine {
     // Roll- und Luftwiderstand
     aLong -= Math.sign(vF) * (0.35 + 0.00028 * vF * vF);
     if (c.throttle === 0 && c.brake === 0) aLong -= Math.sign(vF) * 0.8;
-    if (c.offTrack === 2 && !this.cfg.track.street) aLong -= Math.sign(vF) * (3.5 + Math.abs(vF) * 0.07);
+    if (c.grass > 0.3 && !this.cfg.track.street) aLong -= Math.sign(vF) * (3.5 + Math.abs(vF) * 0.07) * Math.min(1, c.grass * 1.4);
     vF += aLong * dt;
     if (!isHuman && vF < 0) vF = 0;
 
     // Querdynamik: Geschwindigkeitsvektor zur Fahrzeugausrichtung ziehen
     const brakeUse = c.brake > 0 && vF > 0 ? Math.min(1, (c.brake * brakeCap) / (lat * 1.35 + 4)) : 0;
-    const latAvail = lat * Math.sqrt(Math.max(0.35, 1 - brakeUse * brakeUse * 0.55));
+    const latAvail = lat * Math.sqrt(Math.max(0.35, 1 - brakeUse * brakeUse * 0.55 - (isHuman ? accelUse * accelUse * PHYS.accelCirc : 0)));
     const vLat = -vx * fy + vy * fx;
     vx = fx * vF - fy * vLat;
     vy = fy * vF + fx * vLat;
@@ -520,12 +577,40 @@ export class RaceEngine {
 
     // Gieren
     const vNow = Math.hypot(vx, vy);
-    const steerK = this.cfg.assists.steer && isHuman ? 1.08 : isHuman ? 1.32 : 1.3;
-    const latNom = this.latGrip(c, Math.max(vNow, 1), e);
-    const maxCurv = Math.min(1 / 5.5, (latNom * steerK) / Math.max(1, vNow * vNow));
     const vSign = vF >= 0 ? 1 : -1;
-    c.h += vSign * Math.min(vNow, Math.abs(vF) + 0.5) * c.steer * maxCurv * dt;
-    c.latUse = Math.min(1.5, (vNow * vNow * Math.abs(c.steer) * maxCurv) / Math.max(1, latAvail));
+    const latNom = this.latGrip(c, Math.max(vNow, 1), e);
+    if (isHuman) {
+      // Spielerauto: Der Lenkeinschlag verlangt höchstens, was die Reifen halten. Wer mehr will, schiebt über die
+      // Vorderräder (Untersteuern) statt sofort zu driften. Übersteuern entsteht nur durch Gas, Bremsen und Nässe
+      // beim Einlenken, und das Heck wird von der Stabilisierung zur Fahrtrichtung zurückgezogen.
+      const assist = this.cfg.assists.steer;
+      const vmax = Math.max(30, e.vmax);
+      const kd = assist ? PHYS.kd : PHYS.kdOff;
+      const maxCurv = Math.min(1 / 5.5, (latNom * kd) / Math.max(1, vNow * vNow));
+      const steerEff = Math.sign(c.steer) * Math.pow(Math.abs(c.steer), PHYS.exp);
+      const wTarget = vSign * Math.min(vNow, Math.abs(vF) + 0.5) * steerEff * maxCurv;
+      c.yaw += (wTarget - c.yaw) * (1 - Math.exp(-dt / PHYS.lag));
+      const sAbs = Math.min(1, Math.abs(c.steer) * 1.6);
+      const powerOS = Math.max(0, c.throttle) * Math.max(0, 1 - vNow / (0.62 * vmax));
+      const brakeOS = brakeUse * Math.min(1, vNow / 40);
+      const over = 1 + (assist ? 1 : 1.7) * (PHYS.osP * powerOS + PHYS.osB * brakeOS) * sAbs;
+      const wMax = (latAvail / Math.max(vNow, 4)) * over;
+      c.yaw = Math.max(-wMax, Math.min(wMax, c.yaw));
+      let w = c.yaw;
+      if (vF > 3 && vNow > 6) {
+        let beta = c.h - Math.atan2(vy, vx);
+        beta = Math.atan2(Math.sin(beta), Math.cos(beta));
+        const kStab = (assist ? PHYS.kStab : PHYS.kStabOff) * (1 - 0.45 * this.wetness) * (1 + c.cfg.car.stability * 2);
+        w -= kStab * beta * (1 - PHYS.stabSteer * Math.min(1, Math.abs(c.steer)));
+      }
+      c.h += w * dt;
+      c.latUse = Math.min(1.5, (Math.abs(w) * vNow) / Math.max(1, latAvail));
+    } else {
+      const steerK = 1.3;
+      const maxCurv = Math.min(1 / 5.5, (latNom * steerK) / Math.max(1, vNow * vNow));
+      c.h += vSign * Math.min(vNow, Math.abs(vF) + 0.5) * c.steer * maxCurv * dt;
+      c.latUse = Math.min(1.5, (vNow * vNow * Math.abs(c.steer) * maxCurv) / Math.max(1, latAvail));
+    }
 
     // Position
     c.vx = vx;
@@ -555,9 +640,10 @@ export class RaceEngine {
     const hw = g.halfWidth;
     const al = Math.abs(c.lat);
     c.offTrack = al > hw + 1.3 ? 2 : al > hw - 0.3 ? 1 : 0;
-    const wall = hw + this.cfg.track.runoff + (this.cfg.track.street ? 0 : 0);
+    c.grass += (Math.max(0, Math.min(1, (al - (hw - 0.2)) / 2.4)) - c.grass) * Math.min(1, dt * 10);
+    const sign = Math.sign(c.lat) || 1;
+    const wall = this.wallAt(c.s, sign);
     if (al > wall - 1) {
-      const sign = Math.sign(c.lat);
       const pen = al - (wall - 1);
       c.x -= g.nx[i] * pen * sign;
       c.y -= g.ny[i] * pen * sign;
@@ -592,7 +678,7 @@ export class RaceEngine {
     let wetMul = 1;
     if (t.compound === 'inter' && w < 0.3) wetMul = 1 + 2.5 * (1 - w / 0.3);
     if (t.compound === 'wet' && w < 0.5) wetMul = 1 + 4 * (1 - w / 0.5);
-    const load = 0.62 + 0.85 * Math.min(1.2, c.latUse) ** 2 + c.slide * 1.6 + 0.25 * brakeUse + (c.offTrack === 2 ? 0.6 : 0);
+    const load = 0.62 + 0.85 * Math.min(1.2, c.latUse) ** 2 + c.slide * 1.6 + 0.25 * brakeUse + c.grass * 0.6;
     const life = COMPOUNDS[t.compound].life;
     const wearPerM = (0.7 / (life * this.wearDist)) * this.cfg.track.tyreWear * c.cfg.car.tyreWear * driverTyre * styleW * wetMul;
     const hot = t.temp > TEMP_WINDOW[t.compound][1] ? 1 + (t.temp - TEMP_WINDOW[t.compound][1]) * 0.03 : 1;
@@ -653,18 +739,8 @@ export class RaceEngine {
     // Runden & Sektoren
     this.handleTiming(c, prevDist);
 
-    // Boxeneinfahrt
-    if (this.cfg.mode === 'race' && !c.finished) {
-      const prevS = (((prevDist % L) + L) % L);
-      const crossedEntry = prevS < this.pitIn && c.s >= this.pitIn && dS > 0 && dS < 50;
-      if (crossedEntry) {
-        if (!isHuman && !c.pitReq) {
-          const req = this.aiPitDecision(c);
-          if (req) c.pitReq = req;
-        }
-        if (c.pitReq && c.lapsDone < this.cfg.laps) this.enterPit(c);
-      }
-    }
+    // Boxengasse: KI-Entscheidung, Einfahrt, verpasste Einfahrt
+    if (this.cfg.mode === 'race' && !c.finished) this.pitLogic(c, dS, !!isHuman);
   }
 
   private handleTiming(c: CarSim, prevDist: number) {
@@ -725,7 +801,7 @@ export class RaceEngine {
   private aiPitDecision(c: CarSim): PitRequest | null {
     const st = c.cfg.strategy;
     const lapsLeft = this.cfg.laps - c.lapsDone;
-    if (lapsLeft <= 0) return null;
+    if (lapsLeft <= 1) return null; // in der letzten Runde lohnt kein Stopp mehr
     const w = this.wetness;
     const ideal = bestCompoundFor(w, lapsLeft <= 2 ? 'soft' : 'medium');
     const isSlick = ['soft', 'medium', 'hard'].includes(c.tyre.compound);
@@ -752,43 +828,182 @@ export class RaceEngine {
     return { compound: wantCompound, repair: damaged || c.damage.suspension > 0.3, refuel: fuelShort };
   }
 
-  private enterPit(c: CarSim) {
+  // ---------- Boxengasse ----------
+  // Aufbau (Querabstand von der Streckenkante, auf der Boxenseite):
+  //   Strecke | Grünstreifen | Boxenmauer | Fahrspur (Limiter) | Arbeitsspur | Garagen | Außenmauer
+  // Die Zufahrt zweigt am Einfahrtspunkt von der Strecke ab, die Ausfahrt mündet am Ende wieder ein.
+
+  /** Weg ab der Einfahrtslinie (0 … Streckenlänge) */
+  pitRelOf(s: number) {
+    const L = this.geo.length;
+    return (((s - this.pitIn) % L) + L) % L;
+  }
+
+  /** Position der Box eines Teams, als Weg ab der Einfahrt */
+  boxRel(idx: number) {
+    const L = this.geo.length;
+    return this.pitRelOf(L - PIT.firstBox + idx * PIT.boxGap);
+  }
+
+  /** Streckenposition der Box (für die Darstellung) */
+  boxS(idx: number) {
+    const L = this.geo.length;
+    return (L - PIT.firstBox + idx * PIT.boxGap + L * 2) % L;
+  }
+
+  /** Äußere Begrenzung (ohne Boxenmauer): öffnet sich auf der Boxenseite hinter den Garagen */
+  outerWallAt(s: number, sign: number): number {
+    const hw = this.geo.halfWidth;
+    const base = hw + this.cfg.track.runoff;
+    if (sign !== this.pitSide) return base;
+    const outer = Math.max(base, hw + PIT.barrier);
+    let rel = this.pitRelOf(s);
+    if (rel > this.geo.length - 30) rel -= this.geo.length;
+    if (rel < -30 || rel > this.pitLen + 30) return base;
+    if (rel < 0) return base + (outer - base) * smooth((rel + 30) / 30);
+    if (rel <= this.pitLen) return outer;
+    return outer + (base - outer) * smooth((rel - this.pitLen) / 30);
+  }
+
+  /** Abstand der Wand zur Mittellinie, an der Autos anschlagen: auf der Boxenseite zwischen Zufahrt und Ausfahrt die Boxenmauer */
+  wallAt(s: number, sign: number): number {
+    const outer = this.outerWallAt(s, sign);
+    if (sign !== this.pitSide) return outer;
+    const rel = this.pitRelOf(s);
+    if (rel >= PIT.entryLen && rel <= this.pitLen - PIT.exitLen) return Math.min(outer, this.geo.halfWidth + PIT.wall);
+    return outer;
+  }
+
+  /** Tempolimit der Boxengasse beginnt an der Einfahrtslinie und gilt bis zum Ende der Zufahrt der Ausfahrt */
+  private pitLogic(c: CarSim, dS: number, isHuman: boolean) {
+    const L = this.geo.length;
+    const hw = this.geo.halfWidth;
+    const toIn = (((this.pitIn - c.s) % L) + L) % L;
+    // KI entscheidet ca. 270 m vor der Einfahrt, ob sie in dieser Runde reinkommt
+    if (!isHuman) {
+      if (toIn <= 290 && toIn > 250) {
+        if (!c.pitDecided) {
+          c.pitDecided = true;
+          if (!c.pitReq) {
+            const req = this.aiPitDecision(c);
+            if (req) c.pitReq = req;
+          }
+        }
+      } else c.pitDecided = false;
+    }
+    const rel = this.pitRelOf(c.s);
+    if (rel < PIT.entryLen && dS > 0) {
+      if (!c.pitReq) {
+        // Wer ohne Boxenwunsch weit auf die Zufahrt hinausfährt, wird durch die Boxengasse geleitet
+        if (isHuman && c.lat * this.pitSide > hw + 3.0) {
+          this.enterPit(c, true);
+          this.msg('Durchfahrt durch die Boxengasse (kein Stopp). Melde dich mit P/B vorher an die Box.', 'warn', c.cfg.id);
+        }
+        return;
+      }
+      if (c.lapsDone >= this.cfg.laps - 1) {
+        // letzte Runde: Stopp lohnt nicht mehr
+        c.pitReq = null;
+        if (isHuman) this.msg('Letzte Runde – der Boxenstopp ist abgesagt.', 'info', c.cfg.id);
+        return;
+      }
+      const side = c.lat * this.pitSide;
+      if (isHuman && side < -0.15 * hw) return; // Fahrer ist auf der falschen Streckenseite
+      this.enterPit(c);
+    } else if (rel >= PIT.entryLen && rel < PIT.entryLen + 60 && c.pitReq && isHuman && !c.pitMissed) {
+      c.pitMissed = true;
+      this.msg('Boxeneinfahrt verpasst – der Stopp gilt für die nächste Runde.', 'warn', c.cfg.id);
+    } else if (rel > L * 0.5) c.pitMissed = false;
+  }
+
+  private enterPit(c: CarSim, drive = false) {
+    const g = this.geo;
     c.pit = 'entry';
+    c.pitDrive = drive;
+    c.pitRel = this.pitRelOf(c.s);
+    c.pitCaptureRel = c.pitRel;
     c.pitLatStart = c.lat;
-    c.pitStartS = c.s;
-    c.speed = Math.max(c.speed, PIT_SPEED);
-    if (c.cfg.human) this.msg('Boxengasse: Limiter aktiv.', 'info', c.cfg.id);
+    c.pitWait = 0;
+    // Wartet schon ein Auto desselben Teams an der Box, hält dieses Auto dahinter
+    let slot = 0;
+    for (const o of this.cars) {
+      if (o !== c && o.cfg.boxIndex === c.cfg.boxIndex && (o.pit === 'entry' || o.pit === 'toBox' || o.pit === 'stopped')) slot++;
+    }
+    c.pitStopRel = this.boxRel(c.cfg.boxIndex) - slot * 9.5;
+    const p = pointAt(g, c.s, 0);
+    const ang = Math.atan2(this.railLat(c, c.pitRel + 3) - this.railLat(c, c.pitRel), 3);
+    let err = c.h - (Math.atan2(p.ty, p.tx) + ang);
+    err = Math.atan2(Math.sin(err), Math.cos(err));
+    c.pitHeadErr = err;
+    if (c.cfg.human && !drive) this.msg('Boxengasse: Limiter aktiv (80 km/h).', 'info', c.cfg.id);
     this.onEvent?.({ type: 'pitEntry', carId: c.cfg.id });
   }
 
-  private boxS(c: CarSim) {
-    const L = this.geo.length;
-    return (L - 150 + c.cfg.boxIndex * 26 + L) % L;
+  /** Anteil (0 … 1), zu dem das Auto von der Fahrspur in die Arbeitsspur an seiner Box gewechselt ist */
+  private workBlend(c: CarSim, cur: number) {
+    if (c.pitDrive) return 0;
+    const sr = c.pitStopRel;
+    const sw = 24;
+    if (cur < sr - sw) return 0;
+    if (cur < sr) return smooth((cur - (sr - sw)) / sw);
+    if (cur < sr + sw) return c.pits > 0 || c.pit === 'exit' ? 1 - smooth((cur - sr) / sw) : 1;
+    return 0;
   }
 
-  // Fahrt durch die Boxengasse (geskriptet)
+  /** Seitliche Lage des Autos auf der Boxengassen-Strecke */
+  private railLat(c: CarSim, cur: number): number {
+    const total = this.pitLen;
+    const eL = PIT.entryLen;
+    const xL = PIT.exitLen;
+    const fast = this.pitLat;
+    let lat: number;
+    if (cur > total - xL) {
+      const merge = this.pitSide * this.geo.halfWidth * 0.4;
+      lat = fast + (merge - fast) * smooth((cur - (total - xL)) / xL);
+    } else {
+      // von der Lage beim Erfassen sanft auf die Fahrspur einlenken (mindestens 30 m)
+      const c0 = c.pitCaptureRel;
+      const len = Math.max(eL - c0, 30);
+      lat = cur >= c0 + len ? fast : c.pitLatStart + (fast - c.pitLatStart) * smooth((cur - c0) / len);
+    }
+    return lat + (this.pitWorkLat - fast) * this.workBlend(c, cur) * (cur < total - xL ? 1 : 0);
+  }
+
+  /** Ausfahrtsampel: rot, solange sich Verkehr auf der Strecke nähert */
+  private updateExitLight() {
+    const L = this.geo.length;
+    let red = false;
+    for (const o of this.cars) {
+      if (o.dnf || o.pit !== 'none') continue;
+      let d = (((this.pitOut - o.s) % L) + L) % L;
+      if (d > L / 2) d -= L;
+      if (d > -14 && d < o.speed * 2.4 + 35 && o.lat * this.pitSide > -this.geo.halfWidth * 0.2) {
+        red = true;
+        break;
+      }
+    }
+    this.exitRed = red;
+  }
+
+  // Fahrt durch die Boxengasse (geführt): Zufahrt, Fahrspur mit Limiter, Arbeitsspur, Stopp, Ausfahrt mit Ampel
   private stepPit(c: CarSim, dt: number) {
     const g = this.geo;
     const L = g.length;
-    const relS = (s: number) => {
-      // Abstand ab Boxeneinfahrt
-      return (s - this.pitIn + L) % L;
-    };
-    const total = relS(this.pitOut);
-    const boxRel = relS(this.boxS(c));
-    let cur = relS(c.s);
+    const total = this.pitLen;
+    const xStart = total - PIT.exitLen;
+    let cur = c.pitRel;
     let target = PIT_SPEED;
     if (c.pit === 'entry' || c.pit === 'toBox') {
-      const toBox = boxRel - cur;
-      if (toBox < 30) target = Math.max(2, Math.min(PIT_SPEED, toBox * 0.9));
+      if (cur > PIT.entryLen) c.pit = 'toBox';
+      const toBox = c.pitDrive ? 1e9 : c.pitStopRel - cur;
+      if (c.pitDrive && cur > xStart - 30) c.pit = 'exit';
+      if (toBox < 32) target = Math.max(2, Math.min(PIT_SPEED, toBox * 0.9));
       if (toBox <= 0.6) {
         c.pit = 'stopped';
         c.speed = 0;
         const req = c.pitReq ?? { compound: c.tyre.compound, repair: false, refuel: false };
         let tm = c.cfg.pitBase;
-        if (req.repair) {
-          tm += 2.5 + c.damage.frontWing * 6 + c.damage.suspension * 8;
-        }
+        if (req.repair) tm += 2.5 + c.damage.frontWing * 6 + c.damage.suspension * 8;
         if (req.refuel) tm += 2 + Math.max(0, 1.02 - c.fuel) * 6;
         let err = false;
         if (Math.random() < c.cfg.pitError) {
@@ -796,10 +1011,11 @@ export class RaceEngine {
           err = true;
         }
         c.pitTimer = tm;
+        c.pitTotal = tm;
         c.lastPitTime = tm;
         if (c.cfg.playerTeam) this.msg(`${c.cfg.short}: Stopp ${tm.toFixed(1)} s${err ? ' – Probleme am Rad!' : ''}`, err ? 'bad' : 'good', c.cfg.id);
         this.onEvent?.({ type: 'pitStop', carId: c.cfg.id, data: tm });
-      } else if (cur > 70) c.pit = 'toBox';
+      }
     } else if (c.pit === 'stopped') {
       target = 0;
       c.pitTimer -= dt;
@@ -811,52 +1027,67 @@ export class RaceEngine {
           c.damage.suspension *= 0.4;
           c.damage.brakes *= 0.8;
         }
-        if (req.refuel) {
-          c.fuel = Math.max(c.fuel, Math.max(0, (this.raceDist - c.dist) / this.raceDist) * 1.08 + 0.02);
-        }
+        if (req.refuel) c.fuel = Math.max(c.fuel, Math.max(0, (this.raceDist - c.dist) / this.raceDist) * 1.08 + 0.02);
         c.pits++;
         c.pitReq = null;
+        c.pitWait = 0;
         c.pit = 'exit';
         this.onEvent?.({ type: 'pitGo', carId: c.cfg.id });
       }
     }
-    if (c.pit === 'exit') target = PIT_SPEED;
-    // Geschwindigkeit anpassen
-    const acc = target > c.speed ? 8 : 22;
+    if (c.pit === 'exit') {
+      target = PIT_SPEED;
+      if (cur > xStart) target = Math.min(48, PIT_SPEED + (cur - xStart) * 0.35);
+      // Ausfahrtsampel: vor der Einmündung warten, bis die Strecke frei ist (höchstens 5 s)
+      const hold = xStart - 2;
+      if (this.exitRed && cur < hold + 3 && c.pitWait < 5) {
+        target = Math.min(target, Math.max(0, (hold - cur) * 1.3));
+        if (cur > hold - 4 && c.speed < 1.2) c.pitWait += dt;
+      }
+    }
+    // Abstand zum Vordermann auf der Fahrspur halten
+    if (c.pit !== 'stopped') {
+      for (const o of this.cars) {
+        if (o === c || o.pit === 'none') continue;
+        const gap = o.pitRel - cur;
+        if (gap > 0 && gap < 36 && Math.abs(o.lat - c.lat) < 2.6) target = Math.min(target, Math.max(0, o.speed + (gap - 8) * 1.5));
+      }
+    }
+    const acc = target > c.speed ? (c.pit === 'exit' && cur > xStart ? 14 : 9) : 38;
     if (Math.abs(target - c.speed) < acc * dt) c.speed = target;
     else c.speed += Math.sign(target - c.speed) * acc * dt;
+    c.throttle = target > c.speed ? 0.4 : 0;
+    c.brake = target < c.speed - 0.5 ? 0.5 : 0;
     const prevDist = c.dist;
     const adv = c.speed * dt;
     cur += adv;
+    c.pitRel = cur;
     c.dist += adv;
     c.s = (c.s + adv) % L;
     c.odo += adv;
-    // Seitliche Lage
-    let lat: number;
-    const inLen = 80;
-    const outLen = 90;
-    if (cur < inLen) lat = c.pitLatStart + (this.pitLat - c.pitLatStart) * smooth(cur / inLen);
-    else if (cur > total - outLen) {
-      const tgt = this.geo.lineOff[wrapIndex(Math.round(this.pitOut / g.ds), g.n)];
-      lat = this.pitLat + (tgt - this.pitLat) * smooth((cur - (total - outLen)) / outLen);
-    } else lat = this.pitLat;
+    c.pitHeadErr *= Math.exp(-adv / 16);
+    // Lage und Ausrichtung auf der Boxengassen-Strecke
+    const lat = this.railLat(c, cur);
+    const ang = Math.atan2(this.railLat(c, cur + 3) - lat, 3);
     const p = pointAt(g, c.s, lat);
-    const h = Math.atan2(p.ty, p.tx);
-    const dlat = lat - c.lat;
-    c.h = h + Math.atan2(dlat, Math.max(0.5, adv)) * 0.6;
+    c.h = Math.atan2(p.ty, p.tx) + ang + c.pitHeadErr;
     c.x = p.x;
     c.y = p.y;
     c.vx = Math.cos(c.h) * c.speed;
     c.vy = Math.sin(c.h) * c.speed;
     c.lat = lat;
+    c.steer = Math.max(-1, Math.min(1, ang * 4));
     c.idx = nearestIndex(g, c.x, c.y, c.idx, 30);
     c.offTrack = 0;
+    c.grass = 0;
+    c.yaw = 0;
     c.slide = 0;
     c.tyre.temp += (60 - c.tyre.temp) * dt * 0.1;
     this.handleTiming(c, prevDist);
     if (c.pit === 'exit' && cur >= total) {
       c.pit = 'none';
-      c.pitDone = true;
+      c.pitWait = 0;
+      c.steer = 0;
       c.idx = nearestIndex(g, c.x, c.y, c.idx, 30);
     }
   }

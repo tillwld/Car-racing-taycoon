@@ -220,7 +220,7 @@ export function buildEntries(s: GameState, mode: SessionMode, humanDriverId: str
           damage: conditionDamage(s),
           pitBase: crew.base,
           pitError: crew.error,
-          boxIndex: 0,
+          boxIndex: ti,
           paceMul: 1,
         };
         if (w.engineFailureRisk) entry.damage.engine = Math.max(entry.damage.engine, 0.3);

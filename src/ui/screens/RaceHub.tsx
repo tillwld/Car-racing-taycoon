@@ -272,7 +272,7 @@ export default function RaceHub({ go, onRacing, focus }: { go: (s: Screen) => vo
           title={session.title}
           settings={g.settings}
           qualiLaps={2}
-          features={{ pit: f.tyres, fuel: f.tyres, damage: f.garage }}
+          features={{ pit: true, fuel: f.tyres, damage: f.garage, tyres: f.tyres }}
           intro={g.stats.races === 0}
           onSettings={(p) => update((s) => void Object.assign(s.settings, p))}
           onExit={onSessionExit}
