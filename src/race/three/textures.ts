@@ -231,3 +231,19 @@ export function barrierTexture(street: boolean) {
   rc.drawImage(c, 0, 0);
   return finish(rot, { aniso: 4 });
 }
+
+/** Fahrbahnpfeile (weiße Winkel, zeigen in Fahrtrichtung = +v) für die Boxeneinfahrt */
+export function chevronTexture() {
+  const c = makeCanvas(64, 128);
+  const ctx = c.getContext('2d')!;
+  ctx.clearRect(0, 0, 64, 128);
+  ctx.strokeStyle = 'rgba(245,245,245,0.92)';
+  ctx.lineWidth = 9;
+  ctx.lineJoin = 'miter';
+  ctx.beginPath();
+  ctx.moveTo(8, 100);
+  ctx.lineTo(32, 56);
+  ctx.lineTo(56, 100);
+  ctx.stroke();
+  return finish(c, { aniso: 4 });
+}

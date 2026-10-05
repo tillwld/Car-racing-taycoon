@@ -3,6 +3,7 @@ import type { RaceEngine, CarSim } from './engine';
 import { pointAt, wrapIndex, nearestIndexGlobal, type TrackGeometry } from './trackGeometry';
 import type { TrackDef } from '../types';
 import { PIT } from './params';
+import { drawMiniPit } from './miniPit';
 
 interface Scenery {
   trees: { x: number; y: number; r: number; c: string }[];
@@ -600,6 +601,7 @@ export class RaceRenderer {
     const p0 = pointAt(g, 0, 0);
     ctx.fillStyle = '#fff';
     ctx.fillRect(p0.x - 3 / sc, p0.y - 6 / sc, 6 / sc, 12 / sc);
+    drawMiniPit(ctx, this.eng, sc);
     for (const c of this.eng.cars) {
       if (c.dnf) continue;
       ctx.fillStyle = c.cfg.color;

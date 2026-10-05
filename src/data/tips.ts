@@ -83,7 +83,7 @@ export const TIPS: Record<string, Tip> = {
     lead: 'Frische Reifen, Sprit und Reparaturen holst du dir in der Boxengasse. Das geht in jedem Rennen.',
     points: [
       'Taste P (oder BOX am Handy) meldet dich an der Box an. Die Boxengasse liegt kurz vor Start und Ziel auf der Innenseite der Strecke.',
-      'Oben im Bild siehst du, wie weit die Einfahrt noch ist. Halte dich zur Boxenseite und bremse. In der Gasse gilt Tempo 80, das erledigt das Auto für dich.',
+      'Oben im Bild siehst du, wie weit die Einfahrt noch ist, auf der Minikarte zeigt ein gelbes P den Weg. Halte dich zur Boxenseite und biege auf die breite Zufahrt ab. Das geht auch ohne P: Dann meldet dich das Team automatisch an. In der Gasse gilt Tempo 80, das erledigt das Auto für dich.',
       'Dein Team wartet an der Box. Nach dem Stopp zeigt die Ampel, wann die Ausfahrt frei ist. In der letzten Runde lohnt sich kein Stopp mehr.',
       'Mit dem Reifenlager wählst du selbst: Tasten 1 – 5 für die Reifen, F zum Nachtanken, E für Reparaturen. Bei Regen lohnen sich Intermediate oder Wet.',
     ],

@@ -4,7 +4,7 @@ import { RaceRenderer } from '../../race/renderer';
 import { RaceRenderer3D } from '../../race/renderer3d';
 import { bindKeyboard, isTouchDevice, newControls, readInput } from '../../race/input';
 import { computeProfile } from '../../race/ai';
-import { bestCompoundFor, PIT } from '../../race/params';
+import { PIT } from '../../race/params';
 import { sound } from '../../audio/sound';
 import { COMPOUNDS, COMPOUND_KEYS, WEATHER_LABELS } from '../../data/catalog';
 import type { Compound, Settings } from '../../types';
@@ -77,6 +77,8 @@ interface PitHud {
   timer: number;
   total: number;
   compound: Compound;
+  drive: boolean; // Durchfahrt ohne Stopp
+  cancel: boolean; // Stopp lässt sich noch absagen
 }
 
 const STEP = 1 / 60;
@@ -284,18 +286,18 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
 
   function defaultPit(): PitRequest {
     const eng = engRef.current!;
-    const c = eng.human!;
-    const planned = c.cfg.strategy.stops[c.stopIndex];
-    const isWetNeeded = eng.wetness > 0.28;
-    const compound = isWetNeeded ? bestCompoundFor(eng.wetness) : planned?.compound && !['inter', 'wet'].includes(planned.compound) ? planned.compound : c.tyre.compound === 'soft' ? 'medium' : 'soft';
-    const need = Math.max(0, (eng.raceDist - c.dist) / eng.raceDist);
-    return { compound: isWetNeeded ? compound : compound, repair: c.damage.frontWing > 0.15 || c.damage.suspension > 0.15, refuel: c.fuel < need * 1.02 };
+    return eng.defaultPitRequest(eng.human!);
   }
 
   function togglePit() {
     const eng = engRef.current;
-    if (!eng || config.mode !== 'race' || !eng.human || eng.human.pit !== 'none' || eng.human.finished) return;
+    if (!eng || config.mode !== 'race' || !eng.human || eng.human.finished) return;
     const c = eng.human;
+    // schon in der Boxengasse: Stopp absagen, solange das noch geht
+    if (c.pit !== 'none') {
+      if (c.pit === 'stopped' || c.pit === 'exit' || !eng.cancelPitStop(c.cfg.id)) eng.msg('Zu spät: Der Stopp läuft schon.', 'info');
+      return;
+    }
     if (c.pitReq) {
       eng.requestPit(c.cfg.id, null);
       setPitOpen(false);
@@ -519,7 +521,7 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
                   {h.pit.phase === 'lane' && (
                     <>
                       <b>Boxengasse · Limiter 80 km/h</b>
-                      <small>Dein Team wartet an der Box. Du musst nichts tun.</small>
+                      <small>{h.pit.drive ? 'Durchfahrt ohne Stopp. Du musst nichts tun.' : h.pit.cancel ? 'Dein Team wartet an der Box. Mit P sagst du den Stopp noch ab.' : 'Dein Team wartet an der Box. Du musst nichts tun.'}</small>
                     </>
                   )}
                   {h.pit.phase === 'stop' && (
@@ -876,17 +878,19 @@ function cornerPreview(eng: RaceEngine, c: CarSim): Hud['corner'] {
 }
 
 function pitHud(eng: RaceEngine, c: CarSim): PitHud | null {
-  if (eng.cfg.mode !== 'race' || !c.cfg.human) return null;
+  if (!c.cfg.human || (eng.cfg.mode !== 'race' && c.pit === 'none')) return null;
   const side = eng.pitSide;
   const compound = c.pitReq?.compound ?? c.tyre.compound;
-  if (c.pit === 'stopped') return { phase: 'stop', dist: 0, side, timer: Math.max(0, c.pitTimer), total: c.pitTotal, compound };
-  if (c.pit === 'exit') return { phase: eng.exitRed && c.speed < 1.5 ? 'wait' : 'exit', dist: 0, side, timer: 0, total: 0, compound };
-  if (c.pit !== 'none') return { phase: 'lane', dist: 0, side, timer: 0, total: 0, compound };
+  const drive = c.pitDrive;
+  const cancel = !!c.pitReq && !drive && c.pitRel <= c.pitStopRel - c.pitShift - 1;
+  if (c.pit === 'stopped') return { phase: 'stop', dist: 0, side, timer: Math.max(0, c.pitTimer), total: c.pitTotal, compound, drive, cancel };
+  if (c.pit === 'exit') return { phase: eng.exitRed && c.speed < 1.5 ? 'wait' : 'exit', dist: 0, side, timer: 0, total: 0, compound, drive, cancel };
+  if (c.pit !== 'none') return { phase: 'lane', dist: 0, side, timer: 0, total: 0, compound, drive, cancel };
   if (c.pitReq && !c.finished) {
     const L = eng.geo.length;
-    if (eng.pitRelOf(c.s) < PIT.entryLen) return { phase: 'call', dist: 0, side, timer: 0, total: 0, compound };
+    if (eng.pitRelOf(c.s) < PIT.entryLen) return { phase: 'call', dist: 0, side, timer: 0, total: 0, compound, drive: false, cancel: false };
     const toIn = (((eng.pitIn - c.s) % L) + L) % L;
-    if (toIn < 650) return { phase: 'call', dist: toIn, side, timer: 0, total: 0, compound };
+    if (toIn < 650) return { phase: 'call', dist: toIn, side, timer: 0, total: 0, compound, drive: false, cancel: false };
   }
   return null;
 }

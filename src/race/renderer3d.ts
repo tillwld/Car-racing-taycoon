@@ -6,6 +6,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import type { CarSim, RaceEngine } from './engine';
 import { PIT } from './params';
+import { drawMiniPit } from './miniPit';
 import { nearestIndexGlobal, pointAt, wrapIndex, type TrackGeometry } from './trackGeometry';
 import type { TrackDef, WeatherKind } from '../types';
 import { COMPOUNDS } from '../data/catalog';
@@ -396,9 +397,25 @@ export class RaceRenderer3D {
 
     // Kantenlinien
     const white = this.overlayMat(null, '#f0f0f0', -4);
-    const eL = this.ribbon(all, -hw + 0.08, -hw + 0.48, 0.03, 0.03, 10);
-    const eR = this.ribbon(all, hw - 0.48, hw - 0.08, 0.03, 0.03, 10);
-    this.scene.add(new THREE.Mesh(eL, white), new THREE.Mesh(eR, white));
+    // An Zufahrt und Ausfahrt der Boxengasse ist die Randlinie unterbrochen: dort geht die Strecke direkt in die Gasse über
+    const e0 = this.eng;
+    const inMouth = (k: number) => {
+      const rel = e0.pitRelOf(k * g.ds);
+      return rel >= g.length - 30 || rel <= PIT.entryLen + 2 || (rel >= e0.pitLen - PIT.exitLen - 2 && rel <= e0.pitLen + 30);
+    };
+    const edgeGeos: THREE.BufferGeometry[] = [];
+    for (const side of [-1, 1]) {
+      let st = -1;
+      for (let i = 0; i <= n + 1; i++) {
+        const open = i <= n && !(side === e0.pitSide && inMouth(i));
+        if (open && st < 0) st = i;
+        if (!open && st >= 0) {
+          if (i - 1 - st >= 1) edgeGeos.push(this.ribbon(all.slice(st, i), side * (hw - 0.48), side * (hw - 0.08), 0.03, 0.03, 10));
+          st = -1;
+        }
+      }
+    }
+    this.scene.add(new THREE.Mesh(mergeGeometries(edgeGeos, false)!, white));
 
     // Randsteine in Kurven
     const corner = (i: number) => Math.abs(g.k[wrapIndex(i, n)]) > 1 / 160;
@@ -482,19 +499,29 @@ export class RaceRenderer3D {
     const xL = PIT.exitLen;
     const tot = e.pitLen;
     const xs = tot - xL;
-    const i0 = Math.round(e.pitIn / g.ds);
-    const fr = this.frames(i0, i0 + Math.ceil(tot / g.ds) + 1);
+    // Die Zufahrt zweigt 30 m vor der Einfahrtslinie flach von der Streckenkante ab, die Ausfahrt läuft 30 m nach dem Ende wieder aus
+    const taper = 30;
+    const i0 = Math.round((e.pitIn - taper) / g.ds);
+    const fr = this.frames(i0, i0 + Math.ceil((tot + taper * 2) / g.ds) + 1);
     const relK = (k: number) => (i0 + k) * g.ds - e.pitIn;
     const sm = (t: number) => {
       const x = clamp(t, 0, 1);
       return x * x * (3 - 2 * x);
     };
-    const wedge = (k: number) => {
+    // Zufahrt und Ausfahrt: breite Mündung (ca. 7 m) an der Streckenkante, die sich zur Gasse hin öffnet
+    const mouth = 6.9;
+    const inner = (k: number) => {
       const r = relK(k);
-      return r < eL ? sm(r / eL) : r > xs ? sm(1 - (r - xs) / xL) : 1;
+      const t = r < eL ? sm(r / eL) : r > xs ? sm(1 - (r - xs) / xL) : 1;
+      return side * (hw - 0.4 + (PIT.wall + 0.7) * t);
     };
-    const inner = (k: number) => side * (hw - 0.2 + (PIT.wall + 0.5) * wedge(k));
-    const outer = (k: number) => side * (hw + 0.5 + (PIT.door - 0.5) * wedge(k));
+    const outer = (k: number) => {
+      const r = relK(k);
+      if (r < 0) return side * (hw - 0.4 + mouth * sm((r + taper) / taper));
+      if (r > tot) return side * (hw - 0.4 + mouth * sm(1 - (r - tot) / taper));
+      const t = r < eL ? sm(r / eL) : r > xs ? sm(1 - (r - xs) / xL) : 1;
+      return side * (hw + 6.5 + (PIT.door - 6.5) * t);
+    };
 
     // Fahrbahn der Boxengasse
     const pitTex = T.noiseTexture('#454b51', 24, 8, 21, 256);
@@ -628,8 +655,27 @@ export class RaceRenderer3D {
       grp.add(board);
       this.scene.add(grp);
     };
-    mkSign(-70, side * (hw + 2.4), 3.2, 6.4, 1.6, signMat('BOXENEINFAHRT', '#101418', '#ffd23a'));
-    mkSign(-12, side * (hw + 2.4), 2.4, 3.6, 0.9, signMat('LIMIT 80', '#ffffff', '#c8161d'));
+    mkSign(-110, side * (hw + 8.2), 3.8, 8.4, 2.1, signMat('BOXENEINFAHRT', '#101418', '#ffd23a'));
+    mkSign(-45, side * (hw + 8.2), 3.4, 7.2, 1.8, signMat('PIT  →', '#c8161d', '#ffffff'));
+    mkSign(-8, side * (hw + 7.6), 2.6, 4.2, 1.05, signMat('LIMIT 80', '#ffffff', '#c8161d'));
+    mkSign(e.pitLen - xL + 4, side * (hw + 8.2), 3.2, 5.6, 1.4, signMat('AUSFAHRT', '#101418', '#6ee7a8'));
+
+    // Fahrbahnpfeile in der Zufahrt, Leitfässer an der Spitze der Boxenmauer
+    const chevTex = T.chevronTexture();
+    const chevFr = fr.filter((_, k) => relK(k) >= 4 && relK(k) <= eL - 2);
+    const chevMat = new THREE.MeshBasicMaterial({ map: chevTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6 });
+    const chevMid = (k: number) => (inner(k) + outer(k)) / 2;
+    this.scene.add(new THREE.Mesh(this.ribbon(chevFr, (k) => chevMid(k) - side * 1.2, (k) => chevMid(k) + side * 1.2, 0.05, 0.05, 7, 2.4), chevMat));
+    const barrelGeo = new THREE.CylinderGeometry(0.34, 0.38, 0.95, 10);
+    barrelGeo.translate(0, 0.475, 0);
+    const barrelMats = [new THREE.MeshStandardMaterial({ color: '#d4232f', roughness: 0.6 }), new THREE.MeshStandardMaterial({ color: '#f0f0f0', roughness: 0.6 })];
+    for (let b = 0; b < 3; b++) {
+      const bp = pointAt(g, e.pitIn + eL - 2 - b * 0.9, side * (hw + PIT.wall - 0.1 - (b % 2) * 0.7));
+      const barrel = new THREE.Mesh(barrelGeo, barrelMats[b % 2]);
+      barrel.position.set(bp.x, 0, bp.y);
+      barrel.castShadow = true;
+      this.scene.add(barrel);
+    }
 
     // Leitstreifen auf der Zufahrt: leuchtet grün, solange ein Boxenstopp angefordert ist
     const guideFr = fr.filter((_, k) => relK(k) >= -4 && relK(k) <= eL + 4);
@@ -1503,6 +1549,7 @@ export class RaceRenderer3D {
     const p0 = pointAt(g, 0, 0);
     ctx.fillStyle = '#fff';
     ctx.fillRect(p0.x - 3 / sc, p0.y - 6 / sc, 6 / sc, 12 / sc);
+    drawMiniPit(ctx, this.eng, sc);
     for (const c of this.eng.cars) {
       if (c.dnf) continue;
       ctx.fillStyle = c.cfg.color;

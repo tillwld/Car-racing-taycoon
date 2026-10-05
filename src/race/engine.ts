@@ -113,6 +113,7 @@ export interface CarSim {
   pitHeadErr: number; // Winkelversatz beim Einfahren, wird auf der Zufahrt abgebaut
   pitStopRel: number; // Halteposition an der Box (relativ zur Einfahrt)
   pitDrive: boolean; // Durchfahrt ohne Stopp
+  pitShift: number; // Länge des Spurwechsels zur Arbeitsspur
   pitWait: number; // Wartezeit an der Ausfahrtsampel
   pitDecided: boolean; // KI: Entscheidung für diese Runde getroffen
   pitMissed: boolean; // Einfahrt in dieser Runde verpasst (Hinweis schon gezeigt)
@@ -278,6 +279,7 @@ export class RaceEngine {
       pitHeadErr: 0,
       pitStopRel: 0,
       pitDrive: false,
+      pitShift: 24,
       pitWait: 0,
       pitDecided: false,
       pitMissed: false,
@@ -740,7 +742,7 @@ export class RaceEngine {
     this.handleTiming(c, prevDist);
 
     // Boxengasse: KI-Entscheidung, Einfahrt, verpasste Einfahrt
-    if (this.cfg.mode === 'race' && !c.finished) this.pitLogic(c, dS, !!isHuman);
+    if (!c.finished) this.pitLogic(c, dS, !!isHuman);
   }
 
   private handleTiming(c: CarSim, prevDist: number) {
@@ -880,7 +882,7 @@ export class RaceEngine {
     const hw = this.geo.halfWidth;
     const toIn = (((this.pitIn - c.s) % L) + L) % L;
     // KI entscheidet ca. 270 m vor der Einfahrt, ob sie in dieser Runde reinkommt
-    if (!isHuman) {
+    if (!isHuman && this.cfg.mode === 'race') {
       if (toIn <= 290 && toIn > 250) {
         if (!c.pitDecided) {
           c.pitDecided = true;
@@ -892,28 +894,66 @@ export class RaceEngine {
       } else c.pitDecided = false;
     }
     const rel = this.pitRelOf(c.s);
-    if (rel < PIT.entryLen && dS > 0) {
+    if (rel < PIT.entryLen + 8 && dS > 0) {
+      const side = c.lat * this.pitSide;
+      // Im Training, Qualifying und auf der Teststrecke gibt es keine Stopps: die Gasse lässt sich nur durchfahren
+      const lastLap = this.cfg.mode !== 'race' || c.lapsDone >= this.cfg.laps - 1;
       if (!c.pitReq) {
-        // Wer ohne Boxenwunsch weit auf die Zufahrt hinausfährt, wird durch die Boxengasse geleitet
-        if (isHuman && c.lat * this.pitSide > hw + 3.0) {
-          this.enterPit(c, true);
-          this.msg('Durchfahrt durch die Boxengasse (kein Stopp). Melde dich mit P/B vorher an die Box.', 'warn', c.cfg.id);
+        // Wer von selbst auf die Zufahrt abbiegt, meldet sich damit an: das Team bereitet den Stopp vor
+        if (isHuman && side > hw + 1.0) {
+          if (lastLap || rel >= PIT.entryLen) {
+            this.enterPit(c, true);
+            this.msg(lastLap ? (this.cfg.mode === 'race' ? 'Letzte Runde: Durchfahrt durch die Boxengasse, ohne Stopp.' : 'Durchfahrt durch die Boxengasse: Boxenstopps gibt es nur im Rennen.') : 'Zu spät eingebogen: Durchfahrt durch die Boxengasse, ohne Stopp.', 'info', c.cfg.id);
+          } else {
+            c.pitReq = this.defaultPitRequest(c);
+            this.enterPit(c);
+            this.msg(`Boxeneinfahrt: Dein Team wartet. Neue Reifen: ${COMPOUNDS[c.pitReq.compound].label}. Mit P kannst du den Stopp noch absagen.`, 'warn', c.cfg.id);
+          }
         }
         return;
       }
-      if (c.lapsDone >= this.cfg.laps - 1) {
+      if (lastLap) {
         // letzte Runde: Stopp lohnt nicht mehr
         c.pitReq = null;
         if (isHuman) this.msg('Letzte Runde – der Boxenstopp ist abgesagt.', 'info', c.cfg.id);
         return;
       }
-      const side = c.lat * this.pitSide;
+      if (rel >= PIT.entryLen) {
+        // zu spät auf die Zufahrt gelenkt: nicht an der Boxenmauer abprallen, sondern durchfahren (der Wunsch bleibt für die nächste Runde)
+        if (isHuman && side > hw + 1.0) {
+          this.enterPit(c, true);
+          this.msg('Zu spät eingebogen: Durchfahrt ohne Stopp. Dein Stopp-Wunsch gilt für die nächste Runde.', 'warn', c.cfg.id);
+        }
+        return;
+      }
       if (isHuman && side < -0.15 * hw) return; // Fahrer ist auf der falschen Streckenseite
       this.enterPit(c);
-    } else if (rel >= PIT.entryLen && rel < PIT.entryLen + 60 && c.pitReq && isHuman && !c.pitMissed) {
+    } else if (rel >= PIT.entryLen + 8 && rel < PIT.entryLen + 68 && c.pitReq && isHuman && !c.pitMissed) {
       c.pitMissed = true;
       this.msg('Boxeneinfahrt verpasst – der Stopp gilt für die nächste Runde.', 'warn', c.cfg.id);
     } else if (rel > L * 0.5) c.pitMissed = false;
+  }
+
+  /** Vorschlag für einen Stopp: passende Reifen für Wetter und Plan, Reparatur bei Schäden, Nachtanken wenn nötig */
+  defaultPitRequest(c: CarSim): PitRequest {
+    const planned = c.cfg.strategy.stops[c.stopIndex];
+    let compound: Compound;
+    if (this.wetness > 0.28) compound = bestCompoundFor(this.wetness);
+    else if (planned?.compound && !['inter', 'wet'].includes(planned.compound)) compound = planned.compound;
+    else compound = c.tyre.compound === 'soft' ? 'medium' : 'soft';
+    const need = Math.max(0, (this.raceDist - c.dist) / this.raceDist);
+    return { compound, repair: c.damage.frontWing > 0.15 || c.damage.suspension > 0.15, refuel: c.fuel < need * 1.02 };
+  }
+
+  /** Stopp in der Boxengasse noch absagen (nur solange das Auto nicht in die Arbeitsspur eingebogen ist): es wird eine Durchfahrt */
+  cancelPitStop(id: string): boolean {
+    const c = this.byId[id];
+    if (!c || (c.pit !== 'entry' && c.pit !== 'toBox') || c.pitDrive) return false;
+    if (c.pitRel > c.pitStopRel - c.pitShift - 1) return false;
+    c.pitDrive = true;
+    c.pitReq = null;
+    if (c.cfg.human) this.msg('Stopp abgesagt: Du fährst durch die Boxengasse durch.', 'info', id);
+    return true;
   }
 
   private enterPit(c: CarSim, drive = false) {
@@ -930,6 +970,7 @@ export class RaceEngine {
       if (o !== c && o.cfg.boxIndex === c.cfg.boxIndex && (o.pit === 'entry' || o.pit === 'toBox' || o.pit === 'stopped')) slot++;
     }
     c.pitStopRel = this.boxRel(c.cfg.boxIndex) - slot * 9.5;
+    c.pitShift = Math.max(8, Math.min(24, c.pitStopRel - c.pitRel - 2));
     const p = pointAt(g, c.s, 0);
     const ang = Math.atan2(this.railLat(c, c.pitRel + 3) - this.railLat(c, c.pitRel), 3);
     let err = c.h - (Math.atan2(p.ty, p.tx) + ang);
@@ -943,7 +984,7 @@ export class RaceEngine {
   private workBlend(c: CarSim, cur: number) {
     if (c.pitDrive) return 0;
     const sr = c.pitStopRel;
-    const sw = 24;
+    const sw = c.pitShift;
     if (cur < sr - sw) return 0;
     if (cur < sr) return smooth((cur - (sr - sw)) / sw);
     if (cur < sr + sw) return c.pits > 0 || c.pit === 'exit' ? 1 - smooth((cur - sr) / sw) : 1;
