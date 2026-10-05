@@ -9,6 +9,7 @@ npm install
 npm run dev        # Entwicklungsserver (auch im LAN erreichbar, z. B. für das Smartphone)
 npm run build      # Typprüfung + Produktionsbuild nach dist/
 npm run preview    # Produktionsbuild lokal ansehen
+npm run build:artifact   # Alles in eine einzelne HTML-Seite bündeln (artifact/apex-rennstall.html)
 ```
 
 Der Spielstand wird automatisch im `localStorage` des Browsers gespeichert. Unter *Einstellungen* lässt er sich als Text exportieren und wieder importieren.
