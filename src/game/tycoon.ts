@@ -16,8 +16,6 @@ export interface PlotDef {
   yields?: number[];
   /** Was die Fläche freischaltet (nur Anzeige) */
   unlocks?: string;
-  req: (g: GameState) => boolean;
-  reqText: string;
 }
 
 const races = (g: GameState) => g.stats.races;
@@ -27,67 +25,96 @@ export const PLOTS: Record<PlotId, PlotDef> = {
   kiosk: {
     id: 'kiosk', name: 'Fan-Kiosk', kind: 'income', blurb: 'Getränke und Snacks für die Fans.',
     costs: [4000, 9000, 20000, 42000, 90000], yields: [15, 32, 54, 82, 120],
-    req: () => true, reqText: '',
   },
   fanshop: {
     id: 'fanshop', name: 'Fanshop', kind: 'income', blurb: 'Trikots, Kappen und Modellautos.',
     costs: [12000, 26000, 55000, 110000, 220000], yields: [24, 52, 88, 135, 195],
-    req: (g) => has(g, 'kiosk'), reqText: 'Baue zuerst den Fan-Kiosk.',
   },
   workshop: {
     id: 'workshop', name: 'Werkstatt', kind: 'feature', blurb: 'Upgrades, Reparatur und Chassis.',
     costs: [15000], unlocks: 'Upgrades, Reparatur, Chassis-Markt',
-    req: (g) => races(g) >= 1, reqText: 'Fahre zuerst dein erstes Rennen.',
   },
   sponsorLounge: {
     id: 'sponsorLounge', name: 'Sponsoren-Lounge', kind: 'feature', blurb: 'Sponsoren und ihre Ziele.',
     costs: [20000], unlocks: 'Sponsoren-Verträge',
-    req: (g) => races(g) >= 1, reqText: 'Fahre zuerst dein erstes Rennen.',
   },
   setupLab: {
     id: 'setupLab', name: 'Prüfstand', kind: 'feature', blurb: 'Training und Fahrzeugabstimmung.',
     costs: [18000], unlocks: 'Training und Abstimmung',
-    req: (g) => has(g, 'workshop'), reqText: 'Baue zuerst die Werkstatt.',
   },
   tireDepot: {
     id: 'tireDepot', name: 'Reifenlager', kind: 'feature', blurb: 'Reifenwahl, Sprit und Boxenstopps.',
     costs: [25000], unlocks: 'Reifen, Tankmenge und Boxenstopps',
-    req: (g) => has(g, 'setupLab') && races(g) >= 2, reqText: 'Baue den Prüfstand und fahre 2 Rennen.',
   },
   grandstand: {
     id: 'grandstand', name: 'Tribüne', kind: 'income', blurb: 'Zuschauer an der Teststrecke.',
     costs: [45000, 100000, 210000, 420000, 800000], yields: [45, 100, 165, 250, 360],
-    req: (g) => has(g, 'fanshop') && races(g) >= 2, reqText: 'Baue den Fanshop und fahre 2 Rennen.',
   },
   staffOffice: {
     id: 'staffOffice', name: 'Personalbüro', kind: 'feature', blurb: 'Mechaniker und Ingenieure einstellen.',
     costs: [40000], unlocks: 'Mitarbeiter',
-    req: (g) => has(g, 'workshop') && races(g) >= 3, reqText: 'Baue die Werkstatt und fahre 3 Rennen.',
   },
   lounge: {
     id: 'lounge', name: 'Fahrerlounge', kind: 'feature', blurb: 'Fahrer, Verträge und Akademie.',
     costs: [35000], unlocks: 'Fahrer und Transfermarkt',
-    req: (g) => races(g) >= 3, reqText: 'Fahre 3 Rennen.',
   },
   lab: {
     id: 'lab', name: 'Forschungslabor', kind: 'feature', blurb: 'Neue Technik entwickeln.',
     costs: [60000], unlocks: 'Forschungsbaum',
-    req: (g) => has(g, 'workshop') && races(g) >= 3, reqText: 'Baue die Werkstatt und fahre 3 Rennen.',
   },
   pitwall: {
     id: 'pitwall', name: 'Boxenmauer', kind: 'feature', blurb: 'Taktik für deine Fahrer.',
     costs: [70000], unlocks: 'Fahrstil, Aggressivität, Überholstrategie',
-    req: (g) => has(g, 'tireDepot') && races(g) >= 4, reqText: 'Baue das Reifenlager und fahre 4 Rennen.',
   },
   media: {
     id: 'media', name: 'Mediazentrum', kind: 'income', blurb: 'Übertragungsrechte und Werbepartner.',
     costs: [140000, 300000, 620000, 1200000, 2400000], yields: [80, 170, 280, 430, 640],
-    req: (g) => (g.plots.grandstand ?? 0) >= 2 && races(g) >= 6, reqText: 'Baue die Tribüne auf Stufe 2 und fahre 6 Rennen.',
   },
 };
 
-/** Reihenfolge, in der Felder auf dem Gelände sichtbar werden */
-export const PLOT_ORDER: PlotId[] = ['kiosk', 'fanshop', 'workshop', 'sponsorLounge', 'setupLab', 'tireDepot', 'grandstand', 'staffOffice', 'lounge', 'lab', 'pitwall', 'media'];
+/**
+ * Aufbau-Reihenfolge: Es wird immer nur die nächste Anlage frei. Sie braucht die vorherige (gebaut) und eine Mindestzahl
+ * gefahrener Rennen. So kommt alles nacheinander, jeweils mit eigener Erklärung, und nie mehrere neue Dinge auf einmal.
+ */
+export const AUFBAU: { id: PlotId; races: number; why: string }[] = [
+  { id: 'kiosk', races: 0, why: 'Dein erstes Einkommen: Der Kiosk verdient von allein Geld.' },
+  { id: 'fanshop', races: 0, why: 'Mehr Einnahmen, damit du dir die Technik leisten kannst.' },
+  { id: 'workshop', races: 1, why: 'Hier machst du dein Auto schneller und hältst es in Schuss.' },
+  { id: 'sponsorLounge', races: 2, why: 'Sponsoren zahlen dir bei jedem Rennen Geld.' },
+  { id: 'setupLab', races: 3, why: 'Training und Abstimmung: Dein Auto auf die Strecke einstellen.' },
+  { id: 'grandstand', races: 3, why: 'Zuschauer an der Teststrecke bringen kräftig Geld.' },
+  { id: 'tireDepot', races: 4, why: 'Reifen, Tankmenge und eigene Boxenstopps.' },
+  { id: 'lounge', races: 5, why: 'Fahrer verwalten: Verträge, Transfers und Nachwuchs.' },
+  { id: 'staffOffice', races: 6, why: 'Mechaniker und Ingenieure machen dein Team besser.' },
+  { id: 'lab', races: 7, why: 'Neue Technik entwickeln, die dauerhaft wirkt.' },
+  { id: 'pitwall', races: 8, why: 'Taktik für deinen Computer-Fahrer.' },
+  { id: 'media', races: 9, why: 'Die größte Einnahmequelle.' },
+];
+
+/** Reihenfolge, in der Felder auf dem Gelände nacheinander frei werden */
+export const PLOT_ORDER: PlotId[] = AUFBAU.map((a) => a.id);
+
+/** Die nächste noch nicht gebaute Anlage der Reihenfolge */
+export function nextPlot(g: GameState): PlotId | null {
+  return PLOT_ORDER.find((p) => plotLevel(g, p) < 1) ?? null;
+}
+
+/** Was fehlt noch, bevor diese Anlage gebaut werden kann? Leer = kann gebaut werden. */
+export function plotBlockers(g: GameState, id: PlotId): string[] {
+  const i = PLOT_ORDER.indexOf(id);
+  const out: string[] = [];
+  if (plotLevel(g, id) >= 1) return out;
+  // Davor liegende Anlagen müssen stehen: gemeldet wird nur die erste fehlende
+  const missing = PLOT_ORDER.slice(0, i).find((p) => plotLevel(g, p) < 1);
+  if (missing) out.push(`Baue zuerst: ${PLOTS[missing].name}.`);
+  const need = AUFBAU[i].races;
+  if (races(g) < need) out.push(need - races(g) === 1 ? 'Fahre noch 1 Rennen.' : `Fahre noch ${need - races(g)} Rennen.`);
+  return out;
+}
+
+export function plotReqText(g: GameState, id: PlotId): string {
+  return plotBlockers(g, id).join(' ');
+}
 
 export const START_MONEY = 20000;
 const BASE_GRANT = 8; // Grundförderung pro Sekunde
@@ -112,15 +139,26 @@ export function plotCost(g: GameState, id: PlotId): number | null {
   return Math.round((d.costs[lvl] * (d.kind === 'income' ? tierMul(g) : 1)) / 100) * 100;
 }
 
+/** Ausbaustufen einer schon gebauten Anlage sind immer möglich, eine neue braucht die Voraussetzungen der Reihenfolge */
 export function plotAvailable(g: GameState, id: PlotId) {
-  return PLOTS[id].req(g);
+  return plotLevel(g, id) >= 1 || plotBlockers(g, id).length === 0;
 }
 
-/** Sichtbar sind gebaute und kaufbare Felder sowie die nächsten paar in der Reihenfolge */
+/** Sichtbar sind alle gebauten Felder und genau das nächste der Reihenfolge */
 export function plotVisible(g: GameState, id: PlotId) {
-  if (plotLevel(g, id) > 0 || PLOTS[id].req(g)) return true;
-  const built = PLOT_ORDER.filter((p) => plotLevel(g, p) > 0).length;
-  return PLOT_ORDER.indexOf(id) < built + 2;
+  return plotLevel(g, id) > 0 || id === nextPlot(g);
+}
+
+/** Fortschritt in der Aufbau-Reihenfolge für die Anzeige */
+export function aufbauPath(g: GameState): { id: PlotId; name: string; state: 'built' | 'next' | 'later'; text: string; why: string }[] {
+  const next = nextPlot(g);
+  return AUFBAU.map((a) => ({
+    id: a.id,
+    name: PLOTS[a.id].name,
+    state: plotLevel(g, a.id) >= 1 ? 'built' : a.id === next ? 'next' : 'later',
+    text: a.id === next ? (plotReqText(g, a.id) || 'Jetzt baubar: Stell dich auf die leuchtende Fläche.') : '',
+    why: a.why,
+  }));
 }
 
 export function repFactor(g: GameState) {
@@ -167,14 +205,14 @@ export function features(g: GameState): Features {
     garage: has2('workshop'),
     training: has2('setupLab'),
     setup: has2('setupLab'),
-    quali: g.stats.races >= 1,
+    quali: g.stats.races >= 2,
     tyres: has2('tireDepot'),
     tactics: has2('pitwall'),
     research: has2('lab'),
     staff: has2('staffOffice'),
     drivers: has2('lounge'),
     sponsors: has2('sponsorLounge'),
-    finance: g.stats.races >= 1,
+    finance: has2('sponsorLounge') || g.stats.races >= 5,
   };
 }
 
@@ -200,7 +238,7 @@ export function buyPlot(s: GameState, id: PlotId): string | null {
   const d = PLOTS[id];
   const lvl = plotLevel(s, id);
   if (lvl >= d.costs.length) return 'Diese Anlage ist voll ausgebaut.';
-  if (!d.req(s)) return d.reqText;
+  if (lvl === 0 && !plotAvailable(s, id)) return plotReqText(s, id);
   const cost = plotCost(s, id) as number;
   if (s.money < cost) return 'Dafür fehlt noch Geld.';
   book(s, lvl === 0 ? `Gebaut: ${d.name}` : `Ausbau: ${d.name} auf Stufe ${lvl + 1}`, -cost, 'facility');
@@ -227,23 +265,25 @@ export interface Mission {
 }
 
 const built = (id: PlotId) => (g: GameState) => plotLevel(g, id) >= 1;
-const buildable = (id: PlotId) => (g: GameState) => PLOTS[id].req(g);
+const buildable = (id: PlotId) => (g: GameState) => plotAvailable(g, id);
 
 export const MISSIONS: Mission[] = [
   { id: 'drive', text: 'Fahre eine Runde auf der Teststrecke', target: 'track', reward: 1500, done: (g) => (g.flags.testLaps ?? 0) >= 1 },
   { id: 'kiosk', text: 'Baue den Fan-Kiosk: Stell dich auf die leuchtende Fläche', target: 'kiosk', reward: 0, done: built('kiosk') },
+  { id: 'fanshop', text: 'Baue den Fanshop', target: 'fanshop', reward: 0, done: built('fanshop'), avail: buildable('fanshop') },
   { id: 'race1', text: 'Fahre dein erstes Rennen am Team-Transporter', target: 'truck', reward: 8000, done: (g) => g.stats.races >= 1 },
   { id: 'workshop', text: 'Baue die Werkstatt', target: 'workshop', reward: 0, done: built('workshop'), avail: buildable('workshop') },
-  { id: 'fanshop', text: 'Baue den Fanshop', target: 'fanshop', reward: 0, done: built('fanshop'), avail: buildable('fanshop') },
   { id: 'upgrade', text: 'Starte ein Upgrade in der Werkstatt', target: 'garage', reward: 4000, done: (g) => g.stats.upgradesDone >= 1 || g.developments.some((d) => d.kind === 'part'), avail: built('workshop') },
   { id: 'sponsors', text: 'Baue die Sponsoren-Lounge', target: 'sponsorLounge', reward: 0, done: built('sponsorLounge'), avail: buildable('sponsorLounge') },
   { id: 'setupLab', text: 'Baue den Prüfstand für Training und Abstimmung', target: 'setupLab', reward: 0, done: built('setupLab'), avail: buildable('setupLab') },
-  { id: 'points', text: 'Hole deine ersten Meisterschaftspunkte (Top 10)', target: 'truck', reward: 12000, done: (g) => g.stats.points > 0 },
-  { id: 'tires', text: 'Baue das Reifenlager', target: 'tireDepot', reward: 0, done: built('tireDepot'), avail: buildable('tireDepot') },
+  { id: 'practice', text: 'Fahre oder simuliere ein Training und stelle dein Auto am Prüfstand ein', target: 'setupLab', reward: 3000, done: (g) => !!g.flags.practiced, avail: built('setupLab') },
   { id: 'stand', text: 'Baue die Tribüne', target: 'grandstand', reward: 0, done: built('grandstand'), avail: buildable('grandstand') },
-  { id: 'staff', text: 'Baue das Personalbüro und stelle einen Mechaniker ein', target: 'staffOffice', reward: 6000, done: (g) => plotLevel(g, 'staffOffice') >= 1 && !!g.staff.mechanic, avail: buildable('staffOffice') },
+  { id: 'tires', text: 'Baue das Reifenlager', target: 'tireDepot', reward: 0, done: built('tireDepot'), avail: buildable('tireDepot') },
+  { id: 'points', text: 'Hole deine ersten Meisterschaftspunkte (Top 10)', target: 'truck', reward: 12000, done: (g) => g.stats.points > 0 },
   { id: 'lounge', text: 'Baue die Fahrerlounge', target: 'lounge', reward: 0, done: built('lounge'), avail: buildable('lounge') },
+  { id: 'staff', text: 'Baue das Personalbüro und stelle einen Mechaniker ein', target: 'staffOffice', reward: 6000, done: (g) => plotLevel(g, 'staffOffice') >= 1 && !!g.staff.mechanic, avail: buildable('staffOffice') },
   { id: 'lab', text: 'Baue das Forschungslabor', target: 'lab', reward: 0, done: built('lab'), avail: buildable('lab') },
+  { id: 'research', text: 'Starte ein Forschungsprojekt', target: 'lab', reward: 5000, done: (g) => g.developments.some((d) => d.kind === 'research') || Object.keys(g.research).length > 0, avail: built('lab') },
   { id: 'podium', text: 'Fahre aufs Podium', target: 'truck', reward: 30000, done: (g) => g.stats.podiums >= 1 },
   { id: 'pitwall', text: 'Baue die Boxenmauer', target: 'pitwall', reward: 0, done: built('pitwall'), avail: buildable('pitwall') },
   { id: 'season', text: 'Beende deine erste Saison', target: 'truck', reward: 60000, done: (g) => g.history.length >= 1 || !!g.seasonEnd },

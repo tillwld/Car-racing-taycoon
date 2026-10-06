@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useLoadedGame } from '../store';
+import { StationIntro, SubTabs } from '../components/Station';
 import { Bar, Btn, CountryTag, Helmet, Modal, Money, Seg } from '../components/common';
 import { DriverStatsBlock } from '../components/DriverCard';
 import { driverRating } from '../../game/generators';
@@ -13,6 +14,7 @@ export default function Drivers() {
   const [sort, setSort] = useState<'rating' | 'salary' | 'age'>('rating');
   const [replace, setReplace] = useState<{ id: string; academy: boolean } | null>(null);
   const [confirmRelease, setConfirmRelease] = useState<Driver | null>(null);
+  const [tab, setTab] = useState<'team' | 'market' | 'academy'>('team');
   const st = computeStandings(g);
   const mine = g.team.driverIds.map((id) => g.drivers[id]).filter(Boolean);
   const academy = g.academy.map((id) => g.drivers[id]).filter(Boolean);
@@ -28,6 +30,30 @@ export default function Drivers() {
 
   return (
     <>
+      <StationIntro
+        id="lounge"
+        icon="drivers"
+        lead="Hier kümmerst du dich um deine Fahrer: Verträge, neue Fahrer und Nachwuchs."
+        items={[
+          { title: 'Mein Team', text: 'Fahrer 1 steuerst du selbst, Fahrer 2 fährt der Computer. Du siehst Werte, Moral und Vertrag.' },
+          { title: 'Verträge verlängern', text: 'Läuft ein Vertrag aus, verlässt der Fahrer das Team. Verlängere rechtzeitig, am besten mit zwei Rennen Luft.' },
+          { title: 'Transfermarkt', text: 'Hier findest du neue Fahrer. Stärkere Fahrer verlangen mehr Gehalt und einen besseren Ruf deines Teams.' },
+          { title: 'Akademie', text: 'Junge Talente reifen heran und können später zu Stars werden. Sie kosten wenig und lassen sich ins Cockpit befördern.' },
+        ]}
+        tip="Tipp: Ein Cockpit leer zu lassen kostet Punkte und Preisgeld. Besetze beide Plätze."
+      />
+
+      <SubTabs
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { v: 'team', l: 'Mein Team', hint: 'Deine zwei Fahrer: Werte, Moral, Vertrag und Verlängerung.', badge: mine.length < 2 ? `${mine.length}/2` : undefined },
+          { v: 'market', l: 'Transfermarkt', hint: 'Verfügbare Fahrer, die du verpflichten kannst. Sortiere nach Stärke, Gehalt oder Alter.', badge: market.length },
+          { v: 'academy', l: 'Akademie', hint: 'Nachwuchs: Talente bis 20 Jahre entwickeln sich schneller und kosten wenig.', badge: `${academy.length}/3` },
+        ]}
+      />
+
+      {tab === 'team' && (
       <section className="grid g2">
         {mine.map((d, i) => {
           const ds = st.drivers.find((x) => x.driverId === d.id);
@@ -79,11 +105,17 @@ export default function Drivers() {
         {mine.length < 2 && (
           <div className="card stack" style={{ placeContent: 'center', textAlign: 'center', minHeight: 200 }}>
             <h3>Cockpit frei</h3>
-            <p className="muted">Verpflichte unten einen Fahrer vom Markt oder befördere ein Talent aus der Akademie.</p>
+            <p className="muted">Verpflichte einen Fahrer vom Transfermarkt oder befördere ein Talent aus der Akademie.</p>
+            <div className="row" style={{ justifyContent: 'center' }}>
+              <Btn variant="primary sm" onClick={() => setTab('market')}>Zum Transfermarkt</Btn>
+              <Btn variant="sm" onClick={() => setTab('academy')}>Zur Akademie</Btn>
+            </div>
           </div>
         )}
       </section>
+      )}
 
+      {tab === 'academy' && (
       <section className="card">
         <div className="card-h">
           <div>
@@ -110,7 +142,9 @@ export default function Drivers() {
           ))}
         </div>
       </section>
+      )}
 
+      {tab === 'market' && (
       <section className="card">
         <div className="card-h">
           <div>
@@ -152,6 +186,7 @@ export default function Drivers() {
           })}
         </div>
       </section>
+      )}
 
       {replace && (
         <Modal onClose={() => setReplace(null)}>

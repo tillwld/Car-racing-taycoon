@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { useLoadedGame } from '../store';
 import { Money } from '../components/common';
+import { StationIntro, SubTabs } from '../components/Station';
 import { sponsorIncomePerRace, totalSalaries } from '../../game/state';
 import { money } from '../../game/util';
 import type { LedgerEntry } from '../../types';
@@ -22,6 +24,7 @@ const CAT: Record<LedgerEntry['category'], string> = {
 
 export default function Finance() {
   const { game: g } = useLoadedGame();
+  const [tab, setTab] = useState<'overview' | 'areas' | 'ledger'>('overview');
   const season = g.ledger.filter((l) => l.season === g.season);
   const income = season.filter((l) => l.amount > 0).reduce((a, l) => a + l.amount, 0);
   const expenses = season.filter((l) => l.amount < 0).reduce((a, l) => a - l.amount, 0);
@@ -48,6 +51,29 @@ export default function Finance() {
 
   return (
     <>
+      <StationIntro
+        id="finance"
+        icon="finance"
+        lead="Hier siehst du, wohin dein Geld fließt und woher es kommt. Ändern kannst du hier nichts, es ist deine Übersicht."
+        items={[
+          { title: 'Überblick', text: 'Kontostand, Einnahmen und Ausgaben dieser Saison, dazu eine Bilanz pro Rennwochenende.' },
+          { title: 'Nach Bereich', text: 'Zeigt, wofür du am meisten ausgibst: Gehälter, Reparaturen, Upgrades und so weiter.' },
+          { title: 'Buchungen', text: 'Die einzelnen Buchungen der letzten Rennen, damit du jede Zahl nachvollziehen kannst.' },
+        ]}
+        tip="Tipp: Liegt der Wert „Laufend pro Rennen“ im Minus, verdienen deine Sponsoren zu wenig. Hol dir einen besseren Sponsor oder spare bei Personal."
+      />
+
+      <SubTabs
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { v: 'overview', l: 'Überblick', hint: 'Kontostand, Saisonbilanz und die laufenden Kosten pro Rennen.' },
+          { v: 'areas', l: 'Nach Bereich', hint: 'Woher dein Geld in dieser Saison kam und wofür du es ausgegeben hast.' },
+          { v: 'ledger', l: 'Buchungen', hint: 'Die letzten 40 einzelnen Buchungen.' },
+        ]}
+      />
+
+      {tab === 'overview' && (
       <section className="grid g4">
         <div className="card stat-tile">
           <span className="eyebrow">Kontostand</span>
@@ -66,8 +92,10 @@ export default function Finance() {
           <span className="big-num"><Money v={income - expenses} sign compact /></span>
         </div>
       </section>
+      )}
 
-      <section className="grid g2" style={{ alignItems: 'start' }}>
+      {tab === 'overview' && (
+      <section className="grid g1" style={{ alignItems: 'start' }}>
         <div className="card">
           <div className="card-h"><h3>Bilanz pro Rennwochenende</h3></div>
           {series.length === 0 ? (
@@ -101,6 +129,11 @@ export default function Finance() {
             <div className="row between"><b>Laufend pro Rennen (ohne Preisgeld)</b><Money v={sponsor - fixed} sign /></div>
           </div>
         </div>
+      </section>
+      )}
+
+      {tab === 'areas' && (
+      <section className="grid g1" style={{ alignItems: 'start' }}>
         <div className="card">
           <div className="card-h"><h3>Nach Bereich (Saison {g.season})</h3></div>
           <div className="stack" style={{ gap: 6 }}>
@@ -119,7 +152,9 @@ export default function Finance() {
           </div>
         </div>
       </section>
+      )}
 
+      {tab === 'ledger' && (
       <section className="card">
         <div className="card-h"><h3>Letzte Buchungen</h3></div>
         <div className="tbl-wrap">
@@ -138,6 +173,7 @@ export default function Finance() {
           </table>
         </div>
       </section>
+      )}
     </>
   );
 }

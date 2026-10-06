@@ -1,20 +1,22 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import type { RaceFocus, Screen } from '../../App';
 import { useLoadedGame } from '../store';
-import { Bar, Btn, FlagStrip, Icon, Money, Seg, Switch, TrackShape, TyreBadge, WeatherIcon } from '../components/common';
+import { Bar, Btn, FlagStrip, Money, TrackShape } from '../components/common';
+import { StationIntro } from '../components/Station';
+import RaceStation from './RaceStations';
+import { Forecast, TrackTraits } from './RaceParts';
 import { TRACK_BY_ID } from '../../data/tracks';
-import { COMPOUNDS, COMPOUND_KEYS, OVERTAKE_LABELS, STYLE_LABELS, TIERS, WEATHER_LABELS } from '../../data/catalog';
-import type { Compound, GameState, RaceResult, Setup, Strategy } from '../../types';
-import { ensureWeekend, finishQuali, gainSetupKnowledge, makeRaceConfig, outcomeFromEngine, applyRaceResult, practiceFeedback, simulateQualiLaps, trackGeometry, shortName } from '../../game/weekend';
+import { COMPOUNDS, STYLE_LABELS, TIERS, WEATHER_LABELS } from '../../data/catalog';
+import type { GameState, RaceResult } from '../../types';
+import { ensureWeekend, finishQuali, gainSetupKnowledge, makeRaceConfig, outcomeFromEngine, applyRaceResult, practiceFeedback, simulateQualiLaps, shortName } from '../../game/weekend';
 import { staffSkill } from '../../game/carModel';
-import { trackMetrics } from '../../race/trackGeometry';
 import { RaceEngine, type RaceConfig } from '../../race/engine';
 import { setupQuality } from '../../race/params';
 import type { RaceViewResult } from '../race/RaceView';
 import { lapTime, money } from '../../game/util';
 import { teamById } from '../../game/season';
 import { goalText } from '../../game/generators';
-import { features, queueTip, type Features } from '../../game/tycoon';
+import { features, queueTip } from '../../game/tycoon';
 
 const RaceView = lazy(() => import('../race/RaceView'));
 
@@ -83,6 +85,7 @@ export default function RaceHub({ go, onRacing, focus }: { go: (s: Screen) => vo
       const wk = s.weekend!;
       wk.practiceDone = true;
       wk.practiceLog = practiceFeedback(s);
+      s.flags.practiced = true;
     });
     toast('Training simuliert – die Ingenieure haben Daten gesammelt.', 'good');
   };
@@ -103,6 +106,7 @@ export default function RaceHub({ go, onRacing, focus }: { go: (s: Screen) => vo
       res = applyRaceResult(s, out);
       if (s.results.length >= 1 && s.stats.races >= 2) s.tutorialDone = true;
       if (s.stats.races === 1) queueTip(s, 'after_race');
+      if (s.stats.races === 2) queueTip(s, 'quali');
     });
     if (res) {
       const led = (get()!.flags.lastRaceLedger ?? []) as { label: string; amount: number }[];
@@ -141,6 +145,7 @@ export default function RaceHub({ go, onRacing, focus }: { go: (s: Screen) => vo
       update((st) => {
         const wk = st.weekend!;
         wk.practiceDone = true;
+        st.flags.practiced = true;
         const best = r.laps.length ? Math.min(...r.laps) : 0;
         if (best && (!wk.practiceBest || best < wk.practiceBest)) wk.practiceBest = best;
         wk.practiceLog = practiceFeedback(st);
@@ -166,103 +171,8 @@ export default function RaceHub({ go, onRacing, focus }: { go: (s: Screen) => vo
     return [`Runde ${lapTime(lt)}`, ...fb.slice(0, 1)];
   };
 
-  return (
+  const overlays = (
     <>
-      <section className="card hero-race">
-        <div className="stack" style={{ gap: 10 }}>
-          <span className="eyebrow">Runde {g.round + 1} · {TIERS[g.tier].name} · {w.laps} Runden</span>
-          <div className="row" style={{ gap: 12 }}>
-            <FlagStrip colors={t.flag} />
-            <h1>{t.name}</h1>
-          </div>
-          <p className="muted" style={{ maxWidth: 620 }}>{t.description}</p>
-          <TrackTraits trackId={t.id} />
-          <Forecast w={w} />
-        </div>
-        <TrackShape trackId={t.id} />
-      </section>
-
-      {beginner ? (
-        <section className="card beginner-card">
-          <div className="stack" style={{ gap: 10 }}>
-            <span className="eyebrow">Dein erstes Rennen</span>
-            <h2>Starte durch: Du fährst selbst</h2>
-            <ul className="tip-list">
-              <li>Das Startfeld wird automatisch ermittelt, das Qualifying schaltest du nach dem ersten Rennen frei.</li>
-              <li>Gas <kbd>W</kbd>, Bremse <kbd>S</kbd>, Lenken <kbd>A</kbd> <kbd>D</kbd>, Boost <kbd>Leertaste</kbd>. Am Handy erscheinen Tasten auf dem Bildschirm.</li>
-              <li>Je weiter vorn du ins Ziel kommst, desto mehr Preisgeld bekommst du. Das Geld brauchst du für neue Gebäude.</li>
-            </ul>
-          </div>
-          <div className="stack">
-            <Btn variant="primary big" icon="flag" disabled={!canRace} onClick={() => startRace(true)}>Rennen selbst fahren</Btn>
-            <div className="row">
-              <Btn icon="play" disabled={!canRace} onClick={() => startRace(false)}>Zuschauen</Btn>
-              <Btn icon="sim" disabled={!canRace} onClick={simRace}>Rennen simulieren</Btn>
-            </div>
-          </div>
-        </section>
-      ) : (
-        <section className="steps">
-          {f.training ? (
-            <div className={`step ${w.practiceDone ? 'done' : !w.qualiDone ? 'current' : ''}`}>
-              <span className="n">1 · Training</span>
-              <p className="muted" style={{ fontSize: 14 }}>Runden sammeln, damit der Renningenieur die ideale Abstimmung findet.</p>
-              <div className="stack" style={{ gap: 4 }}>
-                <div className="row between" style={{ fontSize: 13 }}>
-                  <span className="muted">Setup-Wissen</span>
-                  <span className="num">{Math.round(w.setupKnowledge)} %</span>
-                </div>
-                <Bar value={w.setupKnowledge} tone={w.setupKnowledge > 70 ? 'good' : undefined} />
-              </div>
-              {w.practiceBest > 0 && <span className="muted" style={{ fontSize: 13 }}>Bestzeit: <span className="num">{lapTime(w.practiceBest)}</span></span>}
-              {w.practiceLog.length > 0 && (
-                <div className="stack" style={{ gap: 4, fontSize: 13 }}>
-                  {w.practiceLog.map((l, i) => (
-                    <span key={i}>„{l}“</span>
-                  ))}
-                </div>
-              )}
-              <div className="row">
-                <Btn variant="primary" icon="play" disabled={w.qualiDone || !canRace} onClick={() => startSession('practice', true)}>Selbst fahren</Btn>
-                <Btn icon="sim" disabled={w.qualiDone || !canRace} onClick={simPractice}>Simulieren</Btn>
-              </div>
-            </div>
-          ) : (
-            <LockedCard title="Training" text="Im Training lernt dein Ingenieur die beste Abstimmung für die Strecke. Baue dafür den Prüfstand auf dem Gelände." />
-          )}
-
-          <div className={`step ${w.qualiDone ? 'done' : w.practiceDone || !f.training ? 'current' : ''}`}>
-            <span className="n">2 · Qualifying</span>
-            {!w.qualiDone ? (
-              <>
-                <p className="muted" style={{ fontSize: 14 }}>Zwei fliegende Runden. Die schnellste entscheidet über deinen Startplatz. Wer vorn startet, hat freie Bahn.</p>
-                <div className="row">
-                  <Btn variant="primary" icon="play" disabled={!canRace} onClick={() => startSession('quali', true)}>Selbst fahren</Btn>
-                  <Btn icon="sim" disabled={!canRace} onClick={() => simQuali()}>Simulieren</Btn>
-                </div>
-              </>
-            ) : (
-              <GridPreview g={g} />
-            )}
-          </div>
-
-          <div className={`step ${w.qualiDone ? 'current' : ''}`}>
-            <span className="n">3 · Rennen</span>
-            <p className="muted" style={{ fontSize: 14 }}>Fahre selbst als {d1 ? d1.name : 'Fahrer 1'}, schau zu oder lass das Rennen in Sekunden durchrechnen.</p>
-            <div className="stack">
-              <Btn variant="primary big" icon="flag" disabled={!canRace} onClick={() => startRace(true)}>Rennen selbst fahren</Btn>
-              <div className="row">
-                <Btn icon="play" disabled={!canRace} onClick={() => startRace(false)}>Zuschauen</Btn>
-                <Btn icon="sim" disabled={!canRace} onClick={simRace}>Rennen simulieren</Btn>
-              </div>
-              {!w.qualiDone && <span className="muted" style={{ fontSize: 12 }}>Ohne Qualifying wird der Startplatz automatisch berechnet.</span>}
-            </div>
-          </div>
-        </section>
-      )}
-
-      <StrategyPanel key={`${w.season}-${w.round}`} g={g} f={f} focus={focus} hasTeammate={!!d2} d1={d1?.name ?? 'Fahrer 1'} d2={d2?.name ?? 'Fahrer 2'} />
-
       {session && (
         <Suspense fallback={<div className="race-root"><div className="center-msg" style={{ fontSize: 22 }}>Rennstrecke wird geladen …</div></div>}>
         <RaceView
@@ -290,58 +200,151 @@ export default function RaceHub({ go, onRacing, focus }: { go: (s: Screen) => vo
       )}
     </>
   );
-}
 
-function LockedCard({ title, text }: { title: string; text: string }) {
-  return (
-    <div className="step locked">
-      <span className="n"><Icon name="lock" size={14} /> {title}</span>
-      <p className="muted" style={{ fontSize: 14 }}>{text}</p>
-      <span className="pill">Gesperrt</span>
-    </div>
-  );
-}
+  const strat = w.strategy;
+  const quality = setupQuality(strat.setup, { ...t, ideal: w.setupHint });
+  const prep: { label: string; value: string; where: string; tone?: string }[] = [];
+  if (f.setup) prep.push({ label: 'Abstimmung', value: `${Math.round(quality * 100)} % passend`, where: 'Ändern im Prüfstand', tone: quality > 0.85 ? 'good' : quality > 0.65 ? 'warn' : 'bad' });
+  if (f.tyres) prep.push({ label: 'Reifen und Stopps', value: `${COMPOUNDS[strat.startCompound].label} · ${strat.stops.length === 1 ? '1 Stopp' : `${strat.stops.length} Stopps`} · Tank ${Math.round(strat.fuel * 100)} %`, where: 'Ändern im Reifenlager' });
+  if (f.tactics) prep.push({ label: 'Taktik', value: `${STYLE_LABELS[strat.style]} · Aggressivität ${strat.aggression}`, where: 'Ändern an der Boxenmauer' });
+  const n0 = f.training ? 1 : 0;
 
-function TrackTraits({ trackId }: { trackId: string }) {
-  const t = TRACK_BY_ID[trackId];
-  const m = useMemo(() => trackMetrics(trackGeometry(t)), [trackId]);
-  const chips: { l: string; tone?: string }[] = [];
-  chips.push({ l: `${(trackGeometry(t).length / 1000).toFixed(2)} km` });
-  if (m.straightPct > 0.74) chips.push({ l: 'Lange Geraden' });
-  if (m.minR < 18) chips.push({ l: 'Enge Kurven' });
-  if (m.corners >= 14) chips.push({ l: 'Viele Kurven' });
-  if (t.ideal.wing >= 60) chips.push({ l: 'Schnelle Kurven' });
-  if (t.tyreWear >= 1.15) chips.push({ l: 'Hoher Reifenverschleiß', tone: 'warn' });
-  if (t.brakeWear >= 1.2) chips.push({ l: 'Hoher Bremsverschleiß', tone: 'warn' });
-  if (t.street) chips.push({ l: 'Stadtkurs: Mauern', tone: 'bad' });
-  return (
-    <div className="row" style={{ gap: 6 }}>
-      {chips.map((c) => (
-        <span key={c.l} className={`pill ${c.tone ?? ''}`}>{c.l}</span>
-      ))}
-    </div>
-  );
-}
+  if (focus) {
+    return (
+      <>
+        <RaceStation
+          key={`${w.season}-${w.round}-${focus}`}
+          g={g}
+          focus={focus}
+          hasTeammate={!!d2}
+          canRace={canRace}
+          d1={d1?.name ?? 'Fahrer 1'}
+          d2={d2?.name ?? 'Fahrer 2'}
+          onPracticeDrive={() => startSession('practice', true)}
+          onPracticeSim={simPractice}
+        />
+        {overlays}
+      </>
+    );
+  }
 
-function Forecast({ w }: { w: NonNullable<GameState['weekend']> }) {
-  const segs = w.forecast;
-  const label = (at: number) => (at === 0 ? 'Start' : at < 0.4 ? 'Erstes Drittel' : at < 0.7 ? 'Rennmitte' : 'Schlussphase');
   return (
-    <div className="stack" style={{ gap: 6 }}>
-      <div className="row between">
-        <span className="eyebrow">Wetterprognose</span>
-        <span className="muted" style={{ fontSize: 12 }}>Treffsicherheit {Math.round(w.forecastConfidence * 100)} %</span>
-      </div>
-      <div className="weather-row">
-        {segs.map((s, i) => (
-          <div key={i} className="weather-seg">
-            <WeatherIcon kind={s.kind} />
-            <b style={{ fontSize: 12 }}>{WEATHER_LABELS[s.kind]}</b>
-            <span className="muted">{label(s.at)}</span>
+    <>
+      {!beginner && (
+        <StationIntro
+          id="truck"
+          icon="race"
+          lead="Der Transporter ist dein Rennwochenende. Hier startest du Qualifying und Rennen."
+          items={[
+            { title: 'Vorbereiten', text: 'Auto, Reifen und Taktik stellst du an den eigenen Stationen ein. Unten siehst du eine Zusammenfassung davon.' },
+            { title: 'Qualifying', text: 'Zwei fliegende Runden entscheiden über deinen Startplatz. Wer vorn startet, hat freie Bahn.' },
+            { title: 'Rennen', text: 'Fahre selbst, schau zu oder lass das Rennen in Sekunden berechnen.' },
+            { title: 'Ergebnis', text: 'Danach gibt es Preisgeld, Sponsorgeld und Punkte. Das Geld steckst du in neue Bereiche.' },
+          ]}
+          tip="Tipp: Selbst fahren bringt am meisten, simulieren geht am schnellsten."
+        />
+      )}
+
+      <section className="card hero-race">
+        <div className="stack" style={{ gap: 10 }}>
+          <span className="eyebrow">Runde {g.round + 1} · {TIERS[g.tier].name} · {w.laps} Runden</span>
+          <div className="row" style={{ gap: 12 }}>
+            <FlagStrip colors={t.flag} />
+            <h1>{t.name}</h1>
           </div>
-        ))}
-      </div>
-    </div>
+          <p className="muted" style={{ maxWidth: 620 }}>{t.description}</p>
+          <TrackTraits trackId={t.id} />
+          <Forecast w={w} />
+        </div>
+        <TrackShape trackId={t.id} />
+      </section>
+
+      {beginner ? (
+        <section className="card beginner-card">
+          <div className="stack" style={{ gap: 10 }}>
+            <span className="eyebrow">Dein erstes Rennen</span>
+            <h2>Starte durch: Du fährst selbst</h2>
+            <ul className="tip-list">
+              <li>Das Startfeld wird automatisch ermittelt, das Qualifying schaltest du nach dem zweiten Rennen frei.</li>
+              <li>Gas <kbd>W</kbd>, Bremse <kbd>S</kbd>, Lenken <kbd>A</kbd> <kbd>D</kbd>, Boost <kbd>Leertaste</kbd>. Am Handy erscheinen Tasten auf dem Bildschirm.</li>
+              <li>Je weiter vorn du ins Ziel kommst, desto mehr Preisgeld bekommst du. Das Geld brauchst du für neue Gebäude.</li>
+            </ul>
+          </div>
+          <div className="stack">
+            <Btn variant="primary big" icon="flag" disabled={!canRace} onClick={() => startRace(true)}>Rennen selbst fahren</Btn>
+            <div className="row">
+              <Btn icon="play" disabled={!canRace} onClick={() => startRace(false)}>Zuschauen</Btn>
+              <Btn icon="sim" disabled={!canRace} onClick={simRace}>Rennen simulieren</Btn>
+            </div>
+          </div>
+        </section>
+      ) : (
+        <section className="steps">
+          {f.training && (
+            <div className={`step ${w.practiceDone ? 'done' : !w.qualiDone ? 'current' : ''}`}>
+              <span className="n">1 · Training</span>
+              <p className="muted" style={{ fontSize: 14 }}>Das Training fährst du im Prüfstand. Dort sammelt dein Ingenieur Daten für die Abstimmung.</p>
+              <div className="stack" style={{ gap: 4 }}>
+                <div className="row between" style={{ fontSize: 13 }}>
+                  <span className="muted">Setup-Wissen</span>
+                  <span className="num">{Math.round(w.setupKnowledge)} %</span>
+                </div>
+                <Bar value={w.setupKnowledge} tone={w.setupKnowledge > 70 ? 'good' : undefined} />
+              </div>
+              <span className={`pill ${w.practiceDone ? 'good' : ''}`}>{w.practiceDone ? 'erledigt' : 'optional · im Prüfstand'}</span>
+            </div>
+          )}
+
+          <div className={`step ${w.qualiDone ? 'done' : 'current'}`}>
+            <span className="n">{n0 + 1} · Qualifying</span>
+            {!w.qualiDone ? (
+              <>
+                <p className="muted" style={{ fontSize: 14 }}>Zwei fliegende Runden. Die schnellste entscheidet über deinen Startplatz. Wer vorn startet, hat freie Bahn.</p>
+                <div className="row">
+                  <Btn variant="primary" icon="play" disabled={!canRace} onClick={() => startSession('quali', true)}>Selbst fahren</Btn>
+                  <Btn icon="sim" disabled={!canRace} onClick={() => simQuali()}>Simulieren</Btn>
+                </div>
+              </>
+            ) : (
+              <GridPreview g={g} />
+            )}
+          </div>
+
+          <div className={`step ${w.qualiDone ? 'current' : ''}`}>
+            <span className="n">{n0 + 2} · Rennen</span>
+            <p className="muted" style={{ fontSize: 14 }}>Fahre selbst als {d1 ? d1.name : 'Fahrer 1'}, schau zu oder lass das Rennen in Sekunden durchrechnen.</p>
+            <div className="stack">
+              <Btn variant="primary big" icon="flag" disabled={!canRace} onClick={() => startRace(true)}>Rennen selbst fahren</Btn>
+              <div className="row">
+                <Btn icon="play" disabled={!canRace} onClick={() => startRace(false)}>Zuschauen</Btn>
+                <Btn icon="sim" disabled={!canRace} onClick={simRace}>Rennen simulieren</Btn>
+              </div>
+              {!w.qualiDone && <span className="muted" style={{ fontSize: 12 }}>Ohne Qualifying wird der Startplatz automatisch berechnet.</span>}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {!beginner && prep.length > 0 && (
+        <section className="card stack" style={{ gap: 8 }}>
+          <div>
+            <h3>Vorbereitung</h3>
+            <p className="muted" style={{ fontSize: 13, marginTop: 2 }}>So gehst du ins Rennen. Ändern kannst du das an den jeweiligen Stationen auf dem Gelände.</p>
+          </div>
+          {prep.map((r) => (
+            <div key={r.label} className="row between prep-row">
+              <div style={{ minWidth: 0 }}>
+                <b>{r.label}</b>
+                <div className="muted" style={{ fontSize: 12.5 }}>{r.where}</div>
+              </div>
+              <span className={r.tone ?? ''} style={{ textAlign: 'right' }}>{r.value}</span>
+            </div>
+          ))}
+        </section>
+      )}
+
+      {overlays}
+    </>
   );
 }
 
@@ -369,210 +372,6 @@ function GridPreview({ g }: { g: GameState }) {
         );
       })}
     </div>
-  );
-}
-
-function StrategyPanel({ g, f, focus, hasTeammate, d1, d2 }: { g: GameState; f: Features; focus?: RaceFocus; hasTeammate: boolean; d1: string; d2: string }) {
-  const { update } = useLoadedGame();
-  const w = g.weekend!;
-  const t = TRACK_BY_ID[w.trackId];
-  const [tab, setTab] = useState<'d1' | 'd2'>('d1');
-  const [setup, setSetup] = useState<Setup>(w.strategy.setup);
-  const [s1, setS1] = useState<Strategy>(w.strategy);
-  const [s2, setS2] = useState<Strategy>(w.teammateStrategy);
-  const first = useRef(true);
-  useEffect(() => {
-    if (first.current) {
-      first.current = false;
-      return;
-    }
-    const tm = setTimeout(() => {
-      update((s) => {
-        if (!s.weekend) return;
-        s.weekend.strategy = { ...s1, setup };
-        s.weekend.teammateStrategy = { ...s2, setup };
-      });
-    }, 250);
-    return () => clearTimeout(tm);
-  }, [setup, s1, s2]);
-
-  useEffect(() => {
-    if (focus) setTimeout(() => document.getElementById(`strat-${focus}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
-  }, [focus]);
-
-  const cur = tab === 'd1' ? s1 : s2;
-  const setCur = (p: Partial<Strategy>) => (tab === 'd1' ? setS1({ ...s1, ...p }) : setS2({ ...s2, ...p }));
-  const laps = w.laps;
-  const scale = Math.max(laps, 6);
-  const tyreLife = (c: Compound) => Math.max(1, (COMPOUNDS[c].life * scale) / t.tyreWear);
-  const fuelLaps = cur.fuel * laps;
-  const lapsOnStart = cur.stops.length ? cur.stops[0].lap : laps;
-  const startLifeWarn = ['soft', 'medium', 'hard'].includes(cur.startCompound) && tyreLife(cur.startCompound) < lapsOnStart - 0.5;
-  const knowQuality = setupQuality(setup, { ...t, ideal: w.setupHint });
-  const sliders: { k: keyof Setup; l: string; lo: string; hi: string }[] = [
-    { k: 'wing', l: 'Flügel', lo: 'wenig Abtrieb · Topspeed', hi: 'viel Abtrieb · Kurvenspeed' },
-    { k: 'gearing', l: 'Übersetzung', lo: 'kurz · Beschleunigung', hi: 'lang · Endgeschwindigkeit' },
-    { k: 'suspension', l: 'Fahrwerk', lo: 'weich · reifenschonend', hi: 'hart · präzise' },
-  ];
-
-  if (!f.setup && !f.tyres && !f.tactics) {
-    return (
-      <section className="card stack" style={{ gap: 10 }}>
-        <div className="card-h">
-          <h2><Icon name="lock" size={18} /> Abstimmung &amp; Strategie</h2>
-          <span className="pill">Noch gesperrt</span>
-        </div>
-        <p className="muted">Hier stellst du später dein Auto auf die Strecke ein und planst Reifen, Boxenstopps und Taktik. Das schaltest du auf dem Gelände frei:</p>
-        <ul className="tip-list">
-          <li><b>Prüfstand</b>: Training und Fahrzeugabstimmung (nach der Werkstatt)</li>
-          <li><b>Reifenlager</b>: Reifenwahl, Tankmenge und Boxenstopps</li>
-          <li><b>Boxenmauer</b>: Fahrstil, Aggressivität und Überholstrategie</li>
-        </ul>
-      </section>
-    );
-  }
-
-  return (
-    <section className="card stack" style={{ gap: 16 }}>
-      <div className="card-h">
-        <h2>Abstimmung &amp; Strategie</h2>
-        <span className="muted" style={{ fontSize: 13 }}>Änderungen werden automatisch übernommen.</span>
-      </div>
-      <div className="grid g2" style={{ alignItems: 'start' }}>
-        <div className="stack" style={{ gap: 12 }}>
-          {f.setup ? (<>
-          <div className="row between" id="strat-setup">
-            <h3>Fahrzeugabstimmung</h3>
-            <Btn variant="sm" onClick={() => setSetup({ ...w.setupHint })}>Empfehlung übernehmen</Btn>
-          </div>
-          {sliders.map((sl) => (
-            <div key={sl.k} className="field">
-              <div className="row between">
-                <label htmlFor={`set-${sl.k}`}>{sl.l}</label>
-                <span className="num" style={{ fontSize: 13 }}>{setup[sl.k]} <span className="muted">· Empfehlung {w.setupHint[sl.k]}</span></span>
-              </div>
-              <div style={{ position: 'relative' }}>
-                <input id={`set-${sl.k}`} type="range" min={0} max={100} value={setup[sl.k]} onChange={(e) => setSetup({ ...setup, [sl.k]: +e.target.value })} />
-                <span aria-hidden="true" style={{ position: 'absolute', top: -4, left: `calc(${w.setupHint[sl.k]}% - 1px)`, width: 2, height: 8, background: 'var(--good)' }} />
-              </div>
-              <div className="row between muted" style={{ fontSize: 11.5 }}>
-                <span>{sl.lo}</span>
-                <span>{sl.hi}</span>
-              </div>
-            </div>
-          ))}
-          <div className="row between" style={{ fontSize: 13 }}>
-            <span className="muted">Passt zur Empfehlung (Setup-Wissen {Math.round(w.setupKnowledge)} %)</span>
-            <span className={knowQuality > 0.85 ? 'good' : knowQuality > 0.65 ? 'warn' : 'bad'}>{Math.round(knowQuality * 100)} %</span>
-          </div>
-          </>) : (
-            <LockedCard title="Fahrzeugabstimmung" text="Flügel, Übersetzung und Fahrwerk auf die Strecke einstellen. Baue dafür den Prüfstand." />
-          )}
-          {f.tyres && (<>
-          <div className="sep" />
-          <h3 id="strat-tyres">Reifen auf dieser Strecke</h3>
-          <div className="tbl-wrap">
-            <table className="tbl">
-              <thead>
-                <tr><th>Mischung</th><th>Einsatz</th><th className="num">Runden bis Abfall</th></tr>
-              </thead>
-              <tbody>
-                {COMPOUND_KEYS.map((c) => (
-                  <tr key={c}>
-                    <td><span className="row" style={{ gap: 8 }}><TyreBadge c={c} sm /> {COMPOUNDS[c].label}</span></td>
-                    <td className="muted" style={{ fontSize: 13 }}>{COMPOUNDS[c].desc}</td>
-                    <td className="num">{['inter', 'wet'].includes(c) ? 'je nach Nässe' : `ca. ${tyreLife(c).toFixed(1)}`}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          </>)}
-        </div>
-
-        <div className="stack" style={{ gap: 12 }}>
-          <div className="row between">
-            <h3>Rennstrategie</h3>
-            {hasTeammate && (f.tyres || f.tactics) && <Seg value={tab} onChange={setTab} options={[{ v: 'd1', l: d1.split(' ').slice(-1)[0] }, { v: 'd2', l: d2.split(' ').slice(-1)[0] }]} />}
-          </div>
-          {f.tyres ? (<>
-          <div className="field" id="strat-tyres-plan">
-            <span className="lbl">Startreifen</span>
-            <div className="tyre-pick">
-              {COMPOUND_KEYS.map((c) => (
-                <button key={c} type="button" className={cur.startCompound === c ? 'on' : ''} onClick={() => setCur({ startCompound: c })}>
-                  <TyreBadge c={c} />
-                  {COMPOUNDS[c].label}
-                </button>
-              ))}
-            </div>
-            {startLifeWarn && <span className="warn" style={{ fontSize: 13 }}>Diese Mischung hält vermutlich nicht bis zum ersten Stopp.</span>}
-          </div>
-          <div className="field">
-            <div className="row between">
-              <label htmlFor="fuel">Tankmenge</label>
-              <span className="num" style={{ fontSize: 13 }}>{Math.round(cur.fuel * 100)} % · {fuelLaps.toFixed(1)} Runden</span>
-            </div>
-            <input id="fuel" type="range" min={80} max={125} value={Math.round(cur.fuel * 100)} onChange={(e) => setCur({ fuel: +e.target.value / 100 })} />
-            <span className="muted" style={{ fontSize: 12 }}>
-              {cur.fuel < 1 ? 'Zu wenig für das ganze Rennen – ein Tankstopp ist nötig.' : cur.fuel < 1.04 ? 'Knapp kalkuliert: bei Vollgas musst du Sprit sparen.' : 'Mehr Sprit = schwerer und langsamer, aber sicher.'}
-            </span>
-          </div>
-          <div className="field">
-            <div className="row between">
-              <span className="lbl">Boxenstopps</span>
-              <Btn variant="sm" disabled={cur.stops.length >= 3} onClick={() => setCur({ stops: [...cur.stops, { lap: Math.min(laps, (cur.stops[cur.stops.length - 1]?.lap ?? 1) + Math.max(1, Math.floor(laps / 3))), compound: 'medium' }] })}>
-                Stopp hinzufügen
-              </Btn>
-            </div>
-            {cur.stops.length === 0 && <span className="muted" style={{ fontSize: 13 }}>Kein geplanter Stopp. Bei Wetterwechsel reagiert das Team automatisch, wenn aktiviert.</span>}
-            {cur.stops.map((st, i) => (
-              <div key={i} className="row" style={{ gap: 8 }}>
-                <span className="muted" style={{ fontSize: 13, width: 52 }}>Stopp {i + 1}</span>
-                <select aria-label={`Runde Stopp ${i + 1}`} value={st.lap} style={{ width: 'auto' }} onChange={(e) => setCur({ stops: cur.stops.map((x, j) => (j === i ? { ...x, lap: +e.target.value } : x)) })}>
-                  {Array.from({ length: laps }, (_, k) => k + 1).map((l) => (
-                    <option key={l} value={l}>Runde {l}</option>
-                  ))}
-                </select>
-                <select aria-label={`Reifen Stopp ${i + 1}`} value={st.compound} style={{ width: 'auto' }} onChange={(e) => setCur({ stops: cur.stops.map((x, j) => (j === i ? { ...x, compound: e.target.value as Compound } : x)) })}>
-                  {COMPOUND_KEYS.map((c) => (
-                    <option key={c} value={c}>{COMPOUNDS[c].label}</option>
-                  ))}
-                </select>
-                <button type="button" className="btn sm ghost" aria-label="Stopp entfernen" onClick={() => setCur({ stops: cur.stops.filter((_, j) => j !== i) })}>
-                  <Icon name="close" />
-                </button>
-              </div>
-            ))}
-          </div>
-          </>) : (
-            <LockedCard title="Reifen, Sprit und Boxenstopps" text="Mischung, Tankmenge und Stopps selbst planen. Baue dafür das Reifenlager." />
-          )}
-          {f.tactics ? (<>
-          <div className="field" id="strat-tactics">
-            <span className="lbl">Fahrstil</span>
-            <Seg value={cur.style} onChange={(v) => setCur({ style: v })} options={(Object.keys(STYLE_LABELS) as (keyof typeof STYLE_LABELS)[]).map((k) => ({ v: k, l: STYLE_LABELS[k] }))} />
-            <span className="muted" style={{ fontSize: 12 }}>Schonend spart Reifen, Sprit und Material. Angriff ist schneller, riskanter und verschleißt mehr.</span>
-          </div>
-          <div className="field">
-            <div className="row between">
-              <label htmlFor="aggr">Aggressivität im Zweikampf</label>
-              <span className="num" style={{ fontSize: 13 }}>{cur.aggression}</span>
-            </div>
-            <input id="aggr" type="range" min={0} max={100} value={cur.aggression} onChange={(e) => setCur({ aggression: +e.target.value })} />
-          </div>
-          <div className="field">
-            <span className="lbl">Überholstrategie</span>
-            <Seg value={cur.overtake} onChange={(v) => setCur({ overtake: v })} options={(Object.keys(OVERTAKE_LABELS) as (keyof typeof OVERTAKE_LABELS)[]).map((k) => ({ v: k, l: OVERTAKE_LABELS[k] }))} />
-          </div>
-          <Switch id={`weather-${tab}`} on={cur.reactToWeather} onChange={(v) => setCur({ reactToWeather: v })} label="Bei Wetterwechsel automatisch auf passende Reifen wechseln" />
-          </>) : (
-            <LockedCard title="Fahrstil und Taktik" text="Fahrstil, Aggressivität und Überholstrategie für den Computer-Fahrer. Baue dafür die Boxenmauer." />
-          )}
-          {tab === 'd1' && f.tyres && <p className="muted" style={{ fontSize: 12 }}>Wenn du selbst fährst, entscheidest du über Boxenstopps (Taste P oder BOX). Der Plan gilt, wenn dein Fahrer übernimmt.</p>}
-        </div>
-      </div>
-    </section>
   );
 }
 

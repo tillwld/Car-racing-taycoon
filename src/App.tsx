@@ -34,7 +34,7 @@ import HubWorld from './ui/world/HubWorld';
 import { STATION_LABELS, type StationId } from './ui/world/hubLayout';
 import { devSlots } from './game/carModel';
 import { TRACK_BY_ID } from './data/tracks';
-import { buyPlot, activeMissions, currentTip, dismissTip, features, freeDriveReward, incomeParts, incomePerSec, PLOTS, plotLevel, type MissionTarget } from './game/tycoon';
+import { aufbauPath, nextPlot, buyPlot, activeMissions, currentTip, dismissTip, features, freeDriveReward, incomeParts, incomePerSec, PLOTS, plotLevel, type MissionTarget } from './game/tycoon';
 import { money } from './game/util';
 import { sound } from './audio/sound';
 
@@ -167,7 +167,7 @@ const SCREEN_NEEDS: Partial<Record<Screen, { feature: keyof ReturnType<typeof fe
   drivers: { feature: 'drivers', where: 'Baue die Fahrerlounge.' },
   staff: { feature: 'staff', where: 'Baue das Personalbüro.' },
   sponsors: { feature: 'sponsors', where: 'Baue die Sponsoren-Lounge.' },
-  finance: { feature: 'finance', where: 'Fahre zuerst dein erstes Rennen.' },
+  finance: { feature: 'finance', where: 'Baue die Sponsoren-Lounge oder fahre fünf Rennen.' },
 };
 const QUICK: { s: StationId; icon: string }[] = [
   { s: 'truck', icon: 'flag' },
@@ -262,8 +262,12 @@ function MoneyTicker({ value, frozen = false }: { value: number; frozen?: boolea
 }
 
 function TipModal({ id, onClose }: { id: string; onClose: () => void }) {
+  const { game } = useGame();
   const tip = TIPS[id];
   if (!tip) return null;
+  // Nach einer neuen Anlage: kurz sagen, was als Nächstes freigeschaltet wird
+  const nxt = id.startsWith('plot_') && game ? nextPlot(game) : null;
+  const nxtInfo = nxt && game ? aufbauPath(game).find((x) => x.id === nxt) : null;
   return (
     <Modal onClose={onClose}>
       <div className="eyebrow">Erklärung</div>
@@ -282,6 +286,11 @@ function TipModal({ id, onClose }: { id: string; onClose: () => void }) {
           <Icon name="right" size={20} />
           <p><b>Als Nächstes:</b> {tip.next}</p>
         </div>
+      )}
+      {nxtInfo && (
+        <p className="muted" style={{ fontSize: 13 }}>
+          Danach folgt: <b>{nxtInfo.name}</b>. {nxtInfo.why} {nxtInfo.text && nxtInfo.text !== 'Jetzt baubar: Stell dich auf die leuchtende Fläche.' ? `(${nxtInfo.text})` : ''}
+        </p>
       )}
       <div className="row">
         <Btn variant="primary big" onClick={onClose}>Verstanden</Btn>

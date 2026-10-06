@@ -1,5 +1,6 @@
 import type { Screen } from '../../App';
 import { useLoadedGame } from '../store';
+import { StationIntro } from '../components/Station';
 import { Btn, FlagStrip, TrackShape } from '../components/common';
 import { TRACK_BY_ID } from '../../data/tracks';
 import { lapTime } from '../../game/util';
@@ -7,6 +8,17 @@ import { lapTime } from '../../game/util';
 export default function Calendar({ go }: { go: (s: Screen) => void }) {
   const { game: g } = useLoadedGame();
   return (
+    <>
+    <StationIntro
+      id="calendar"
+      icon="calendar"
+      lead="Der Rennkalender zeigt alle Rennen dieser Saison."
+      items={[
+        { title: 'Nächstes Rennen', text: 'Das hervorgehobene Rennen ist als Nächstes dran. Zum Starten gehst du zum Team-Transporter.' },
+        { title: 'Ergebnisse', text: 'Bei gefahrenen Rennen siehst du, wie deine Fahrer abgeschnitten haben.' },
+        { title: 'Strecken', text: 'Jede Strecke ist anders: lange Geraden, enge Kurven oder Regenrisiko.' },
+      ]}
+    />
     <section className="card">
       <div className="card-h">
         <h3>Saison {g.season}</h3>
@@ -47,5 +59,6 @@ export default function Calendar({ go }: { go: (s: Screen) => void }) {
         })}
       </div>
     </section>
+    </>
   );
 }

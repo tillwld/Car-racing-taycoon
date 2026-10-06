@@ -1,4 +1,5 @@
 import { useLoadedGame } from '../store';
+import { StationIntro } from '../components/Station';
 import { Icon, Money } from '../components/common';
 import { ACHIEVEMENTS, TIERS } from '../../data/catalog';
 import { TRACKS } from '../../data/tracks';
@@ -28,6 +29,17 @@ export default function StatsScreen() {
   const unlocked = ACHIEVEMENTS.filter((a) => g.achievements[a.id]).length;
   return (
     <>
+      <StationIntro
+        id="stats"
+        icon="stats"
+        lead="Hier sammelt das Spiel alles, was du bisher geschafft hast."
+        items={[
+          { title: 'Zahlen', text: 'Rennen, Siege, Podien, Kilometer, Boxenstopps und mehr auf einen Blick.' },
+          { title: 'Bestzeiten', text: 'Deine schnellste Runde auf jeder Strecke.' },
+          { title: 'Erfolge', text: 'Kleine Ziele, die du nebenbei freischaltest, zum Beispiel dein erster Sieg.' },
+        ]}
+      />
+
       <section className="grid g4 keep">
         {tiles.map(([l, v]) => (
           <div key={l} className="card stat-tile">

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useLoadedGame } from '../store';
+import { StationIntro } from '../components/Station';
 import { Seg } from '../components/common';
 import { computeStandings, teamById } from '../../game/season';
 import { TRACK_BY_ID } from '../../data/tracks';
@@ -15,6 +16,18 @@ export default function Championship() {
   const remaining = g.calendar.length - g.results.length;
   return (
     <>
+      <StationIntro
+        id="championship"
+        icon="championship"
+        lead="Die Pokalvitrine zeigt dir, wo dein Team in der Saison steht."
+        items={[
+          { title: 'Fahrer-Tabelle', text: 'Alle Fahrer mit Punkten, Siegen, Podien und ihrem Ergebnis bei jedem Rennen.' },
+          { title: 'Team-Tabelle', text: 'Die Punkte beider Fahrer zählen zusammen. Der Teamtitel bringt viel Preisgeld und Ruf.' },
+          { title: 'Rennergebnisse', text: 'Unter „Rennen“ siehst du, wie jedes Rennen ausgegangen ist.' },
+        ]}
+        tip="Auf dem zweiten Reiter oben (Statistiken & Erfolge) findest du deine Rekorde und freigeschaltete Erfolge."
+      />
+
       <section className="card row between">
         <div>
           <div className="eyebrow">{TIERS[g.tier].name} · Saison {g.season}</div>

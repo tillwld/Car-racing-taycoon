@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { useLoadedGame } from '../store';
+import { Block, StationIntro, SubTabs } from '../components/Station';
 import { Bar, Btn, Money } from '../components/common';
 import { CHASSIS, CHASSIS_BY_ID, CONDITION_LABELS, FACILITY, PARTS, PART_KEYS, STAT_LABELS } from '../../data/catalog';
 import { carRating, devSlots, partCost, partTime, playerCarStats } from '../../game/carModel';
@@ -18,9 +20,53 @@ export default function Garage() {
   const totalRepair = condKeys.reduce((a, k) => a + repairCost(g, k), 0);
   const facDev = g.developments.find((d) => d.kind === 'facility');
   const next = FACILITY[g.facility];
+  const [tab, setTab] = useState<'car' | 'parts' | 'build'>('car');
+  const condAvg = condKeys.reduce((a, k) => a + g.car.condition[k], 0) / condKeys.length;
 
   return (
     <>
+      <StationIntro
+        id="garage"
+        icon="garage"
+        lead="Hier machst du dein Auto schneller und hältst es heil. Alles kostet Geld, dafür wirkt es dauerhaft."
+        items={[
+          { title: 'Auto prüfen', text: 'Du siehst alle Werte deines Wagens und wie stark Upgrades und Forschung sie verbessern.' },
+          { title: 'Reparieren', text: 'Nach Rennen sind Teile verschlissen. Eine Reparatur hält das Auto schnell und zuverlässig.' },
+          { title: 'Bauteile verbessern', text: 'Upgrades für Motor, Bremsen, Reifen und mehr. Sie brauchen Geld und Zeit, gemessen in Rennen.' },
+          { title: 'Ausbauen und Chassis', text: 'Die Fabrik erlaubt höhere Stufen. Ein neues Chassis ist die große Investition für mehr Grundtempo.' },
+        ]}
+        tip="Tipp: Fang mit Motor und Bremsen an und repariere vor jedem Rennen, wenn der Zustand unter 80 % liegt."
+      />
+
+      <div className="grid g3 keep">
+        <div className="card stat-tile">
+          <span className="eyebrow">Gesamtwert</span>
+          <span className="big-num">{rating}</span>
+          <span className="sub">{base?.name}</span>
+        </div>
+        <div className="card stat-tile">
+          <span className="eyebrow">Zustand</span>
+          <span className="big-num" style={{ color: condAvg < 0.6 ? 'var(--bad)' : condAvg < 0.8 ? 'var(--warn)' : undefined }}>{Math.round(condAvg * 100)} %</span>
+          <span className="sub">{totalRepair > 0 ? <>Reparatur <Money v={totalRepair} compact /></> : 'Alles in Ordnung'}</span>
+        </div>
+        <div className="card stat-tile">
+          <span className="eyebrow">Entwicklung</span>
+          <span className="big-num">{partsBusy.length}/{slots.parts}</span>
+          <span className="sub">Plätze belegt{facDev ? ' · Fabrik im Bau' : ''}</span>
+        </div>
+      </div>
+
+      <SubTabs
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { v: 'car', l: 'Auto & Zustand', hint: 'Wie schnell ist dein Auto, und was muss repariert werden?' },
+          { v: 'parts', l: 'Upgrades', hint: 'Bauteile verbessern: Jede Stufe macht das Auto etwas besser.', badge: partsBusy.length ? `${partsBusy.length} läuft` : undefined },
+          { v: 'build', l: 'Ausbau & Chassis', hint: 'Große Investitionen: die Werkstatt zur Fabrik ausbauen oder ein besseres Chassis kaufen.' },
+        ]}
+      />
+
+      {tab === 'car' && (
       <section className="grid g2" style={{ alignItems: 'start' }}>
         <div className="card stack" style={{ gap: 12 }}>
           <div className="card-h">
@@ -81,7 +127,9 @@ export default function Garage() {
           })}
         </div>
       </section>
+      )}
 
+      {tab === 'parts' && (
       <section className="card">
         <div className="card-h">
           <div>
@@ -131,7 +179,9 @@ export default function Garage() {
           );
         })}
       </section>
+      )}
 
+      {tab === 'build' && (
       <section className="grid g2" style={{ alignItems: 'start' }}>
         <div className="card stack" style={{ gap: 10 }}>
           <div className="eyebrow">Fabrik</div>
@@ -191,6 +241,7 @@ export default function Garage() {
           })}
         </div>
       </section>
+      )}
     </>
   );
 }

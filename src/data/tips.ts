@@ -50,7 +50,7 @@ export const TIPS: Record<string, Tip> = {
     icon: 'flag',
     lead: 'Du fährst als Fahrer 1 selbst. Dein zweiter Fahrer wird vom Computer gesteuert.',
     points: [
-      'Das Startfeld wird automatisch ermittelt. Das Qualifying schaltest du nach dem ersten Rennen frei.',
+      'Das Startfeld wird automatisch ermittelt. Das Qualifying schaltest du nach dem zweiten Rennen frei.',
       'Gas, Bremse und Lenken wie auf der Teststrecke. Die Leertaste ist der Boost.',
       'Am Ende bekommst du Preisgeld nach Platzierung. Davon gehen Gehälter und Reisekosten ab.',
       'Du kannst jederzeit mit Esc pausieren und das Rennen simulieren lassen.',
@@ -63,14 +63,14 @@ export const TIPS: Record<string, Tip> = {
     points: [
       'Je weiter vorn du ins Ziel kommst, desto mehr Preisgeld gibt es.',
       'Dein Ruf (Reputation) steigt mit guten Ergebnissen. Ein guter Ruf lockt Sponsoren an und steigert deine Einnahmen.',
-      'Neue Bauflächen sind jetzt frei: Werkstatt und Sponsoren-Lounge warten auf dich.',
-      'Ab jetzt kannst du das Qualifying selbst fahren und dir einen besseren Startplatz holen.',
+      'Neue Anlagen werden nacheinander frei, immer nur eine auf einmal. Als Erstes wartet jetzt die Werkstatt auf dich.',
+      'Nach jedem weiteren Rennen kommt Stück für Stück mehr dazu: Qualifying, Sponsoren, Training und so weiter.',
     ],
   },
   quali: {
-    title: 'Qualifying',
+    title: 'Neu: Qualifying',
     icon: 'race',
-    lead: 'Im Qualifying fährst du schnelle Runden für den Startplatz. Die beste Runde zählt.',
+    lead: 'Ab jetzt gibt es vor jedem Rennen das Qualifying: Schnelle Runden für den Startplatz, die beste zählt.',
     points: [
       'Du hast zwei fliegende Runden. Die schnellste entscheidet über deine Startposition.',
       'Wer vorn startet, hat im Rennen freie Bahn und weniger Gedränge.',
@@ -136,7 +136,7 @@ export const TIPS: Record<string, Tip> = {
       'Fahrwerk: Weich schont die Reifen, hart ist präziser.',
       'Keine Ahnung? Der Knopf „Empfehlung übernehmen“ setzt alle Regler auf den besten bekannten Wert.',
     ],
-    next: 'Öffne im Team-Transporter den Bereich „Abstimmung“ und probiere die Regler aus.',
+    next: 'Öffne den Prüfstand, fahre oder simuliere ein Training und probiere die Regler aus.',
   },
   plot_tireDepot: {
     title: 'Reifenlager gebaut: Reifen, Sprit und Boxenstopps',
@@ -148,7 +148,7 @@ export const TIPS: Record<string, Tip> = {
       'Tankmenge: Mehr Sprit macht das Auto schwerer und langsamer, zu wenig zwingt dich zum Nachtanken.',
       'Boxenstopp: Im Rennen meldest du dich mit Taste P an der Box an und wählst dann Reifen (1 – 5), Nachtanken (F) und Reparatur (E).',
     ],
-    next: 'Wähle im Team-Transporter bei „Strategie“ deine Startreifen.',
+    next: 'Öffne das Reifenlager und wähle deine Startreifen.',
   },
   plot_pitwall: {
     title: 'Boxenmauer gebaut: Rennstrategie',

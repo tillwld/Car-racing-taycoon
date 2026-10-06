@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import type { Screen } from '../../App';
 import { useLoadedGame } from '../store';
 import { Bar, Btn, FlagStrip, Helmet, Icon, Logo, Money, TrackShape, WeatherIcon } from '../components/common';
+import { StationIntro, SubTabs } from '../components/Station';
 import { TRACK_BY_ID } from '../../data/tracks';
 import { CHASSIS_BY_ID, CONDITION_LABELS, FACILITY, TIERS, WEATHER_LABELS } from '../../data/catalog';
 import { carRating, devSlots, playerCarStats } from '../../game/carModel';
@@ -8,10 +10,12 @@ import { computeStandings } from '../../game/season';
 import { lapsFor, shortName } from '../../game/weekend';
 import { driverRating } from '../../game/generators';
 import { sponsorIncomePerRace, totalSalaries } from '../../game/state';
-import { features } from '../../game/tycoon';
+import { aufbauPath, features } from '../../game/tycoon';
 
 export default function Dashboard({ go }: { go: (s: Screen) => void }) {
   const { game: g } = useLoadedGame();
+  const [tab, setTab] = useState<'today' | 'team' | 'news'>('today');
+  const [allSteps, setAllSteps] = useState(false);
   const f = features(g);
   const trackId = g.calendar[g.round];
   const t = trackId ? TRACK_BY_ID[trackId] : null;
@@ -32,6 +36,10 @@ export default function Dashboard({ go }: { go: (s: Screen) => void }) {
   const partsBusy = g.developments.filter((d) => d.kind === 'part').length;
   const resBusy = g.developments.filter((d) => d.kind === 'research').length;
 
+  const path = aufbauPath(g);
+  const builtCount = path.filter((x) => x.state === 'built').length;
+  const nextStep = path.find((x) => x.state === 'next');
+
   const alerts: { text: string; to: Screen; tone: 'bad' | 'warn' }[] = [];
   if (f.drivers && g.team.driverIds.length < 2) alerts.push({ text: 'Ein Cockpit ist frei – verpflichte einen zweiten Fahrer.', to: 'drivers', tone: 'bad' });
   for (const id of f.drivers ? g.team.driverIds : []) {
@@ -47,6 +55,31 @@ export default function Dashboard({ go }: { go: (s: Screen) => void }) {
 
   return (
     <>
+      <StationIntro
+        id="office"
+        icon="dashboard"
+        lead="Das Büro ist deine Schaltzentrale. Hier siehst du auf einen Blick, was als Nächstes ansteht."
+        items={[
+          { title: 'Heute', text: 'Das nächste Rennen, dein Geld und eine kurze To-do-Liste. Die Hinweise führen dich mit einem Klick zur richtigen Station.' },
+          { title: 'Dein Aufbau', text: 'Neue Bereiche schaltest du nacheinander frei. Hier steht immer der nächste Schritt und was dafür fehlt.' },
+          { title: 'Team', text: 'Auto, Zustand und beide Fahrer in einer Übersicht.' },
+          { title: 'Neuigkeiten', text: 'Meldungen aus dem Fahrerlager: Ergebnisse, Wechsel und Ereignisse.' },
+        ]}
+        tip="Tipp: Starte jedes Mal hier. Die To-do-Liste sagt dir, was als Nächstes sinnvoll ist."
+      />
+
+      <SubTabs
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { v: 'today', l: 'Heute', hint: 'Nächstes Rennen, Geld, Aufbau und offene Aufgaben.', badge: alerts.length || undefined },
+          { v: 'team', l: 'Team', hint: 'Dein Auto, der Fahrzeugzustand und deine zwei Fahrer.' },
+          { v: 'news', l: 'Neuigkeiten', hint: 'Die letzten Meldungen aus dem Fahrerlager.' },
+        ]}
+      />
+
+      {tab === 'today' && (
+      <>
       {t && (
         <section className="card hero-race">
           <div className="stack" style={{ gap: 12 }}>
@@ -83,6 +116,32 @@ export default function Dashboard({ go }: { go: (s: Screen) => void }) {
         </section>
       )}
 
+      <section className="card stack" style={{ gap: 10 }}>
+        <div className="card-h" style={{ marginBottom: 0 }}>
+          <div>
+            <h3>Dein Aufbau</h3>
+            <p className="muted" style={{ fontSize: 13, marginTop: 2 }}>
+              {nextStep ? `${builtCount} von ${path.length} Bereichen gebaut. Der nächste Bereich schaltet sich frei, sobald du die Bedingung erfüllst.` : 'Alle Bereiche sind gebaut. Starke Leistung!'}
+            </p>
+          </div>
+          <Btn variant="sm ghost" onClick={() => setAllSteps(!allSteps)}>{allSteps ? 'Weniger anzeigen' : 'Alle Schritte'}</Btn>
+        </div>
+        <div className="aufbau">
+          {path
+            .filter((x) => allSteps || x.state === 'next')
+            .map((x) => (
+              <div key={x.id} className={`aufbau-step ${x.state}`}>
+                <span className="dot">{x.state === 'built' ? <Icon name="check" size={13} /> : path.indexOf(x) + 1}</span>
+                <div>
+                  <b>{x.name}</b>
+                  <small>{x.state === 'next' ? `${x.why}${x.text ? ` · ${x.text}` : ''}` : x.state === 'built' ? 'gebaut' : 'folgt später'}</small>
+                </div>
+                {x.state === 'next' && <span className="pill team">als Nächstes</span>}
+              </div>
+            ))}
+        </div>
+      </section>
+
       <section className="grid g4">
         <div className="card stat-tile">
           <span className="eyebrow">Budget</span>
@@ -106,7 +165,42 @@ export default function Dashboard({ go }: { go: (s: Screen) => void }) {
         </div>
       </section>
 
-      <section className="grid g2">
+      <section className="grid g1">
+        <div className="card stack" style={{ gap: 10 }}>
+          <div className="card-h">
+            <h3>To-do</h3>
+            <span className="muted" style={{ fontSize: 13 }}>{alerts.length ? `${alerts.length} Hinweise` : 'Alles im grünen Bereich'}</span>
+          </div>
+          {alerts.length === 0 && <p className="muted">Keine offenen Punkte. Zeit für das nächste Rennen.</p>}
+          {alerts.slice(0, 6).map((a, i) => (
+            <button key={i} type="button" className="choice" style={{ gridTemplateColumns: 'auto 1fr auto', display: 'grid', alignItems: 'center', gap: 10 }} onClick={() => go(a.to)}>
+              <span className={a.tone}><Icon name="info" size={18} /></span>
+              <span style={{ color: 'var(--text)' }}>{a.text}</span>
+              <Icon name="right" size={16} />
+            </button>
+          ))}
+          {g.developments.length > 0 && (
+            <>
+              <div className="sep" />
+              <div className="eyebrow">In Entwicklung</div>
+              {g.developments.map((d) => (
+                <div key={d.id} className="stack" style={{ gap: 4 }}>
+                  <div className="row between" style={{ fontSize: 14 }}>
+                    <span>{d.label}</span>
+                    <span className="muted">noch {d.remaining} {d.remaining === 1 ? 'Rennen' : 'Rennen'}</span>
+                  </div>
+                  <Bar value={d.total - d.remaining} max={d.total} />
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      </section>
+      </>
+      )}
+
+      {tab === 'team' && (
+      <section className="grid g1">
         <div className="card stack" style={{ gap: 14 }}>
           <div className="card-h">
             <h3>Team</h3>
@@ -146,38 +240,10 @@ export default function Dashboard({ go }: { go: (s: Screen) => void }) {
             );
           })}
         </div>
-
-        <div className="card stack" style={{ gap: 10 }}>
-          <div className="card-h">
-            <h3>To-do</h3>
-            <span className="muted" style={{ fontSize: 13 }}>{alerts.length ? `${alerts.length} Hinweise` : 'Alles im grünen Bereich'}</span>
-          </div>
-          {alerts.length === 0 && <p className="muted">Keine offenen Punkte. Zeit für das nächste Rennen.</p>}
-          {alerts.slice(0, 6).map((a, i) => (
-            <button key={i} type="button" className="choice" style={{ gridTemplateColumns: 'auto 1fr auto', display: 'grid', alignItems: 'center', gap: 10 }} onClick={() => go(a.to)}>
-              <span className={a.tone}><Icon name="info" size={18} /></span>
-              <span style={{ color: 'var(--text)' }}>{a.text}</span>
-              <Icon name="right" size={16} />
-            </button>
-          ))}
-          {g.developments.length > 0 && (
-            <>
-              <div className="sep" />
-              <div className="eyebrow">In Entwicklung</div>
-              {g.developments.map((d) => (
-                <div key={d.id} className="stack" style={{ gap: 4 }}>
-                  <div className="row between" style={{ fontSize: 14 }}>
-                    <span>{d.label}</span>
-                    <span className="muted">noch {d.remaining} {d.remaining === 1 ? 'Rennen' : 'Rennen'}</span>
-                  </div>
-                  <Bar value={d.total - d.remaining} max={d.total} />
-                </div>
-              ))}
-            </>
-          )}
-        </div>
       </section>
+      )}
 
+      {tab === 'news' && (
       <section className="card">
         <div className="card-h">
           <h3>Fahrerlager-News</h3>
@@ -191,6 +257,7 @@ export default function Dashboard({ go }: { go: (s: Screen) => void }) {
           ))}
         </div>
       </section>
+      )}
     </>
   );
 }

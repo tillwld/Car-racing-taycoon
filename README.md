@@ -26,21 +26,33 @@ Das Team gilt ab der Gründung als fertig: Wenn Sponsorverträge auslaufen oder 
 
 ## Schrittweise Freischaltung mit Erklärungen
 
-Am Anfang gibt es nur Teststrecke, Rennen und einen Kiosk. Alles andere wird durch Bauen freigeschaltet, und bei jeder neuen Funktion erscheint eine Erklärung (jederzeit wieder abrufbar über das Info-Symbol oben rechts).
+Am Anfang gibt es nur Teststrecke, Rennen und einen Kiosk. Alles andere kommt **strikt nacheinander**: Auf dem Gelände ist immer nur die **nächste** Fläche sichtbar und kaufbar. Sie braucht die vorherige Anlage und eine Mindestzahl gefahrener Rennen. Was noch fehlt, steht an der Fläche und im Büro unter „Dein Aufbau“. Bei jeder neuen Funktion erscheint eine Erklärung (jederzeit wieder abrufbar über das Info-Symbol oben rechts).
 
-| Feld | Schaltet frei | Voraussetzung |
-| --- | --- | --- |
-| Fan-Kiosk, Fanshop, Tribüne, Mediazentrum | Einnahmen pro Sekunde (je 5 Stufen) | Kiosk sofort, die anderen nach und nach |
-| Werkstatt | Upgrades, Reparatur, Chassis | erstes Rennen |
-| Sponsoren-Lounge | Sponsoren-Verträge | erstes Rennen |
-| Prüfstand | Training und Fahrzeugabstimmung | Werkstatt |
-| Reifenlager | Reifenwahl, Sprit, eigene Auswahl am Boxenstopp (Boxenstopps selbst gibt es immer) | Prüfstand, 2 Rennen |
-| Personalbüro | Mitarbeiter | Werkstatt, 3 Rennen |
-| Fahrerlounge | Fahrer, Verträge, Akademie | 3 Rennen |
-| Forschungslabor | Forschungsbaum | Werkstatt, 3 Rennen |
-| Boxenmauer | Fahrstil, Aggressivität, Überholstrategie | Reifenlager, 4 Rennen |
+| Schritt | Feld | Schaltet frei | Mindestens gefahrene Rennen |
+| --- | --- | --- | --- |
+| 1 | Fan-Kiosk | Einnahmen pro Sekunde | 0 |
+| 2 | Fanshop | mehr Einnahmen | 0 |
+| 3 | Werkstatt | Upgrades, Reparatur, Chassis | 1 |
+| 4 | Sponsoren-Lounge | Sponsoren-Verträge (und die Finanzübersicht) | 2 |
+| 5 | Prüfstand | Training und Fahrzeugabstimmung | 3 |
+| 6 | Tribüne | Einnahmen an der Teststrecke | 3 |
+| 7 | Reifenlager | Reifenwahl, Sprit, eigene Auswahl am Boxenstopp (Boxenstopps selbst gibt es immer) | 4 |
+| 8 | Fahrerlounge | Fahrer, Verträge, Akademie | 5 |
+| 9 | Personalbüro | Mitarbeiter | 6 |
+| 10 | Forschungslabor | Forschungsbaum | 7 |
+| 11 | Boxenmauer | Fahrstil, Aggressivität, Überholstrategie | 8 |
+| 12 | Mediazentrum | größte Einnahmequelle | 9 |
 
-Das Qualifying schaltet sich nach dem ersten Rennen frei. Bis dahin wird der Startplatz automatisch ermittelt. Zufallsereignisse beginnen erst nach dem dritten Rennen.
+Ab dem dritten Rennen kommt pro Rennen genau eine neue Funktion dazu. Das Qualifying schaltet sich nach dem zweiten Rennen frei. Bis dahin wird der Startplatz automatisch ermittelt. Zufallsereignisse beginnen erst nach dem dritten Rennen.
+
+## Die Stationen
+
+Jede Station beginnt mit einer Erklärung „Das kannst du hier tun“ (ausblendbar) und teilt ihre Inhalte in Reiter auf, damit nie alles auf einmal zu sehen ist:
+
+- **Büro:** Heute (nächstes Rennen, Aufbau, To-do), Team, Neuigkeiten. Dazu die **Finanzen** mit Überblick, Bereichen und Buchungen.
+- **Transporter:** Rennwochenende mit Qualifying und Rennen sowie eine Zusammenfassung deiner Vorbereitung.
+- **Prüfstand:** Training und Abstimmung. **Reifenlager:** Plan und Mischungen. **Boxenmauer:** Fahrstil, Zweikämpfe, Wetter.
+- **Werkstatt, Sponsoren-Lounge, Fahrerlounge, Labor, Personalbüro, Pokalraum, Kalender:** jeweils mit eigenen Reitern bzw. Karten pro Aufgabe.
 
 ## Steuerung im Rennen
 

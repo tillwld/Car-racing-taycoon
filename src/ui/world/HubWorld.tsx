@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { GameState, PlotId, StaffRole } from '../../types';
 import { buildLayout, FENCE_Y, GATE, isWalkable, spotKey, START, STATION_LABELS, TEST_PAD, TRACK_Y, WALK, WORLD, type Rect, type Spot, type StationId } from './hubLayout';
 import { STAFF_ROLES } from '../../data/catalog';
-import { PLOTS, plotAvailable, plotCost, plotLevel, plotMaxLevel, plotYield } from '../../game/tycoon';
+import { PLOTS, plotAvailable, plotReqText, plotCost, plotLevel, plotMaxLevel, plotYield } from '../../game/tycoon';
 import { money } from '../../game/util';
 import { sound } from '../../audio/sound';
 import { keyLabel, labelsFor, reverseKeys } from '../../race/keys';
@@ -170,7 +170,7 @@ export default function HubWorld({ game, paused, hidden = false, alerts, objecti
       const lvl = plotLevel(g, s.plot);
       out.push({
         id: s.plot, x: s.pad.x, y: s.pad.y, name: PLOTS[s.plot].name, cost, level: lvl, max: plotMaxLevel(s.plot),
-        avail: plotAvailable(g, s.plot), afford: g.money >= cost, req: PLOTS[s.plot].reqText,
+        avail: plotAvailable(g, s.plot), afford: g.money >= cost, req: plotReqText(g, s.plot),
         gain: PLOTS[s.plot].yields ? plotYield(g, s.plot, lvl + 1) - plotYield(g, s.plot, lvl) : 0, above: s.door.side === 'n', kind: 'plot',
       });
     }
