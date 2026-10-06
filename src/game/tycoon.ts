@@ -44,7 +44,7 @@ export const PLOTS: Record<PlotId, PlotDef> = {
   },
   tireDepot: {
     id: 'tireDepot', name: 'Reifenlager', kind: 'feature', blurb: 'Reifenwahl, Sprit und Boxenstopps.',
-    costs: [25000], unlocks: 'Reifen, Tankmenge und Boxenstopps',
+    costs: [25000], unlocks: 'Planung von Reifen, Tankmenge und Boxenstopps',
   },
   grandstand: {
     id: 'grandstand', name: 'Tribüne', kind: 'income', blurb: 'Zuschauer an der Teststrecke.',
@@ -83,7 +83,7 @@ export const AUFBAU: { id: PlotId; races: number; why: string }[] = [
   { id: 'sponsorLounge', races: 2, why: 'Sponsoren zahlen dir bei jedem Rennen Geld.' },
   { id: 'setupLab', races: 3, why: 'Training und Abstimmung: Dein Auto auf die Strecke einstellen.' },
   { id: 'grandstand', races: 3, why: 'Zuschauer an der Teststrecke bringen kräftig Geld.' },
-  { id: 'tireDepot', races: 4, why: 'Reifen, Tankmenge und eigene Boxenstopps.' },
+  { id: 'tireDepot', races: 4, why: 'Reifen, Tankmenge und Boxenstopps vor dem Rennen planen.' },
   { id: 'lounge', races: 5, why: 'Fahrer verwalten: Verträge, Transfers und Nachwuchs.' },
   { id: 'staffOffice', races: 6, why: 'Mechaniker und Ingenieure machen dein Team besser.' },
   { id: 'lab', races: 7, why: 'Neue Technik entwickeln, die dauerhaft wirkt.' },

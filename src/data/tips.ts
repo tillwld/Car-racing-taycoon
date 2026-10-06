@@ -139,14 +139,14 @@ export const TIPS: Record<string, Tip> = {
     next: 'Öffne den Prüfstand, fahre oder simuliere ein Training und probiere die Regler aus.',
   },
   plot_tireDepot: {
-    title: 'Reifenlager gebaut: Reifen, Sprit und Boxenstopps',
+    title: 'Reifenlager gebaut: Reifen und Sprit planen',
     icon: 'pit',
-    lead: 'Reifen sind im Motorsport entscheidend. Jetzt kannst du Mischung, Tankmenge und Stopps selbst planen.',
+    lead: 'Reifen sind im Motorsport entscheidend. Jetzt kannst du Mischung, Tankmenge und Stopps schon vor dem Rennen planen.',
     points: [
       'Soft: viel Grip, aber schneller verschlissen. Hard: hält lange, hat weniger Grip. Medium liegt dazwischen.',
       'Intermediate und Wet brauchst du, wenn die Strecke nass ist.',
       'Tankmenge: Mehr Sprit macht das Auto schwerer und langsamer, zu wenig zwingt dich zum Nachtanken.',
-      'Boxenstopp: Im Rennen meldest du dich mit Taste P an der Box an und wählst dann Reifen (1 – 5), Nachtanken (F) und Reparatur (E).',
+      'Boxenstopp im Rennen: Mit Taste P meldest du dich an der Box an und wählst dann Reifen (1 – 5), Nachtanken (F) und Reparatur (E). Das geht auch ohne Reifenlager.',
     ],
     next: 'Öffne das Reifenlager und wähle deine Startreifen.',
   },

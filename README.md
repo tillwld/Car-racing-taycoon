@@ -36,14 +36,14 @@ Am Anfang gibt es nur Teststrecke, Rennen und einen Kiosk. Alles andere kommt **
 | 4 | Sponsoren-Lounge | Sponsoren-Verträge (und die Finanzübersicht) | 2 |
 | 5 | Prüfstand | Training und Fahrzeugabstimmung | 3 |
 | 6 | Tribüne | Einnahmen an der Teststrecke | 3 |
-| 7 | Reifenlager | Reifenwahl, Sprit, eigene Auswahl am Boxenstopp (Boxenstopps selbst gibt es immer) | 4 |
+| 7 | Reifenlager | Planung vor dem Rennen: Startreifen, Tankmenge, Boxenstopps | 4 |
 | 8 | Fahrerlounge | Fahrer, Verträge, Akademie | 5 |
 | 9 | Personalbüro | Mitarbeiter | 6 |
 | 10 | Forschungslabor | Forschungsbaum | 7 |
 | 11 | Boxenmauer | Fahrstil, Aggressivität, Überholstrategie | 8 |
 | 12 | Mediazentrum | größte Einnahmequelle | 9 |
 
-Ab dem dritten Rennen kommt pro Rennen genau eine neue Funktion dazu. Das Qualifying schaltet sich nach dem zweiten Rennen frei. Bis dahin wird der Startplatz automatisch ermittelt. Zufallsereignisse beginnen erst nach dem dritten Rennen.
+Ab dem dritten Rennen kommt pro Rennen genau eine neue Funktion dazu. Die Anzeigen im Rennen (Reifen, Sprit, Schaden) und das Boxenmenü mit Reifenwahl, Nachtanken und Reparatur gibt es von Anfang an. Das Qualifying schaltet sich nach dem zweiten Rennen frei. Bis dahin wird der Startplatz automatisch ermittelt. Zufallsereignisse beginnen erst nach dem dritten Rennen.
 
 ## Die Stationen
 
