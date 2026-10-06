@@ -9,7 +9,7 @@ export interface AIState {
   offsetTarget: number;
   offsetTimer: number;
   mistake: number;
-  mistakeKind: 'none' | 'late' | 'lock' | 'wide';
+  mistakeKind: 'none' | 'late' | 'lock' | 'wide' | 'off' | 'slow';
   profile: Float32Array;
   profileTimer: number;
   profileGrip: number;
@@ -18,6 +18,24 @@ export interface AIState {
   defendTimer: number;
   lastCornerIdx: number;
   blocked: number;
+  /** Tagesform für dieses Rennen (−2 … +2, Normalverteilung) */
+  form: number;
+  /** Stimmung dieser Runde: +1 Glanzrunde, −1 unsauber, dazwischen normal */
+  mood: number;
+  moodLap: number;
+  lapBiasLap: number;
+  /** Eigene Linie: Neigung pro Runde und langsames Pendeln (Meter neben der Ideallinie) */
+  bias: number;
+  wander: number;
+  /** Seite des Auslaufs bei einem Ausrutscher (+1 / −1) */
+  offSide: number;
+}
+
+/** Stärke der Abweichungen (Linie, Form, Fehler); 0 = alle Gegner fahren identisch, 1 = normal */
+export const AI_VARIANCE = { v: 1 };
+
+function gauss() {
+  return (Math.random() + Math.random() + Math.random() + Math.random() - 2) * 1.7;
 }
 
 export function lineOffAt(g: TrackGeometry, s: number) {
@@ -66,6 +84,26 @@ function wrapDelta(a: number, L: number) {
   return d;
 }
 
+/** Neue Runde: Stimmung auswürfeln. Gute Fahrer haben öfter Glanzrunden, unkonstante mehr unsaubere Runden. */
+function rollMood(eng: RaceEngine, c: CarSim) {
+  const ai = c.ai;
+  const d = c.cfg.driver;
+  const cons = d.consistency / 100;
+  const r = Math.random();
+  const pFlow = 0.1 + (d.speed - 50) * 0.0014;
+  const pRough = 0.13 + (0.75 - cons) * 0.2;
+  if (r < pFlow) {
+    eng.aiEvents.flow++;
+    ai.mood = 0.8 + Math.random() * 0.3;
+    if (c.cfg.playerTeam && !c.cfg.human && eng.cfg.mode === 'race' && c.started) eng.msg(`${c.cfg.short} fährt eine Glanzrunde!`, 'good', c.cfg.id);
+  } else if (r < pFlow + pRough) {
+    eng.aiEvents.rough++;
+    ai.mood = -(0.7 + Math.random() * 0.4);
+  }
+  else ai.mood = gauss() * 0.22;
+  ai.mood = Math.max(-1.1, Math.min(1.1, ai.mood));
+}
+
 export function aiControl(eng: RaceEngine, c: CarSim, dt: number): Input {
   const g = eng.geo;
   const L = g.length;
@@ -77,10 +115,17 @@ export function aiControl(eng: RaceEngine, c: CarSim, dt: number): Input {
 
   // Tempo / Risiko
   const styleCorner = st.style === 'attack' || isQuali ? 0.012 : st.style === 'conserve' ? -0.02 : 0;
-  let cornerUse = (0.855 + d.cornering * 0.0012 + (d.speed - 50) * 0.0004 + styleCorner) * c.cfg.paceMul;
+  const V = AI_VARIANCE.v * (isQuali ? 0.5 : 1);
+  if (ai.moodLap !== c.lapsDone) {
+    ai.moodLap = c.lapsDone;
+    rollMood(eng, c);
+  }
+  // Tagesform und Stimmung verschieben das Tempo spürbar (±1 % pro Stufe ≈ eine Sekunde pro Runde)
+  const formPace = (ai.form * 0.02 + ai.mood * 0.05) * V;
+  let cornerUse = (0.855 + d.cornering * 0.0012 + (d.speed - 50) * 0.0004 + styleCorner) * c.cfg.paceMul * (1 + formPace);
   if (eng.wetness > 0.15) cornerUse *= 1 - (72 - d.wet) * 0.0009 * eng.wetness;
   cornerUse = Math.min(0.988, cornerUse + c.cfg.car.stability * 0.02);
-  let brakeUse = Math.min(0.97, (0.8 + d.braking * 0.0016) * (0.96 + 0.04 * c.cfg.paceMul));
+  let brakeUse = Math.min(0.97, (0.8 + d.braking * 0.0016) * (0.96 + 0.04 * c.cfg.paceMul) * (1 + formPace * 0.5));
   if (c.finished) {
     cornerUse *= 0.72;
     brakeUse *= 0.8;
@@ -173,27 +218,41 @@ export function aiControl(eng: RaceEngine, c: CarSim, dt: number): Input {
     }
   }
 
-  // Fahrfehler beim Anbremsen
+  // Fahrfehler beim Anbremsen: seltener bei guter Form, häufiger an schlechten Tagen und im Nassen
   if (ai.mistake > 0) ai.mistake -= dt;
   else ai.mistakeKind = 'none';
   if (v > vt + 4 && Math.abs(c.idx - ai.lastCornerIdx) > 40 && !isQuali && !c.finished) {
     ai.lastCornerIdx = c.idx;
     const styleM = st.style === 'attack' ? 1.5 : st.style === 'conserve' ? 0.7 : 1;
+    const moodF = ai.mood < 0 ? 1 + -ai.mood * 2.2 : 1 - ai.mood * 0.75;
+    const formF = 1 - ai.form * 0.12;
     const p =
-      0.018 * Math.max(0.15, 1.35 - d.consistency / 100) * (1 + eng.wetness * 1.3) * styleM * Math.max(0.3, 1 - c.cfg.car.stability * 1.5) * Math.max(0.6, 1.2 - d.experience * 0.004);
+      0.03 * Math.max(0.15, 1.35 - d.consistency / 100) * (1 + eng.wetness * 1.3) * styleM * Math.max(0.3, 1 - c.cfg.car.stability * 1.5) * Math.max(0.6, 1.2 - d.experience * 0.004) * (1 + (moodF * formF - 1) * AI_VARIANCE.v);
     if (Math.random() < p) {
+      eng.aiEvents.mistakes++;
       const r = Math.random();
-      ai.mistakeKind = r < 0.5 ? 'late' : r < 0.75 ? 'lock' : 'wide';
-      ai.mistake = ai.mistakeKind === 'lock' ? 0.45 : 1.1;
+      ai.mistakeKind = r < 0.3 ? 'late' : r < 0.52 ? 'lock' : r < 0.72 ? 'wide' : r < 0.88 ? 'off' : 'slow';
+      ai.mistake = ai.mistakeKind === 'lock' ? 0.45 : ai.mistakeKind === 'off' ? 1.7 : ai.mistakeKind === 'slow' ? 1.6 : 1.1;
       if (ai.mistakeKind === 'lock') c.tyre.wear = Math.min(1, c.tyre.wear + 0.015);
       if (ai.mistakeKind === 'wide') {
         ai.offsetTarget = -Math.sign(kAhead || 1) * 2.5;
         ai.offsetTimer = 1.2;
       }
-      if (c.cfg.playerTeam && ai.mistakeKind !== 'wide') eng.msg(`${c.cfg.short}: Verbremser!`, 'warn', c.cfg.id);
+      if (ai.mistakeKind === 'off') {
+        // Ausrutscher: geradeaus über die Kante auf den Auslauf, danach zurück auf die Strecke
+        ai.offSide = -Math.sign(kAhead || 1);
+        c.tyre.wear = Math.min(1, c.tyre.wear + 0.01);
+      }
+      if (c.cfg.playerTeam) {
+        if (ai.mistakeKind === 'off') eng.msg(`${c.cfg.short}: Ausrutscher! Neben der Strecke.`, 'warn', c.cfg.id);
+        else if (ai.mistakeKind === 'slow') eng.msg(`${c.cfg.short}: Unsicher, verliert Zeit.`, 'warn', c.cfg.id);
+        else if (ai.mistakeKind !== 'wide') eng.msg(`${c.cfg.short}: Verbremser!`, 'warn', c.cfg.id);
+      }
     }
   }
   if (ai.mistakeKind === 'late') vt *= 1.09;
+  if (ai.mistakeKind === 'slow') vt *= 0.82;
+  if (ai.mistakeKind === 'off') vt *= 0.9;
 
   // Boxeneinfahrt: rechtzeitig zur Boxenseite und auf Limiter-Tempo herunter
   let pitW = 0;
@@ -209,8 +268,21 @@ export function aiControl(eng: RaceEngine, c: CarSim, dt: number): Input {
   const maxLatRate = 3.2 * (0.7 + aggr * 0.6);
   const dOff = ai.offsetTarget - ai.offsetCur;
   ai.offsetCur += Math.sign(dOff) * Math.min(Math.abs(dOff), maxLatRate * dt);
-  let latTarget = lineT + ai.offsetCur;
+  // Eigene Linie: jeder Fahrer wählt pro Runde eine leicht andere Spur und pendelt langsam, vor allem auf Geraden.
+  // In engen Kurven und an guten Tagen kehrt er zur Ideallinie zurück.
+  if (ai.bias === 999) ai.bias = gauss() * 0.9;
+  ai.wander += (-ai.wander * dt) / 3.2 + gauss() * Math.sqrt(dt) * 0.8;
+  if (ai.moodLap !== ai.lapBiasLap) {
+    ai.lapBiasLap = ai.moodLap;
+    ai.bias = gauss() * 0.95 * (1.2 - d.consistency / 130);
+  }
+  const tightK = Math.min(0.8, Math.abs(g.lineK[wrapIndex(c.idx + Math.round(45 / g.ds), g.n)]) * 85);
+  let spread = (ai.bias + ai.wander) * (1 - tightK) * (1 - 0.55 * Math.max(0, ai.mood)) * AI_VARIANCE.v;
+  spread = Math.max(-2.6, Math.min(2.6, spread));
+  vt *= 1 - 0.012 * Math.abs(spread);
+  let latTarget = lineT + ai.offsetCur + spread;
   latTarget = Math.max(-hwLim, Math.min(hwLim, latTarget));
+  if (ai.mistakeKind === 'off' && ai.mistake > 0.35) latTarget = ai.offSide * (g.halfWidth + 2.4);
   if (pitW > 0) latTarget = latTarget * (1 - pitW) + eng.pitSide * (g.halfWidth - 2) * pitW;
 
   // Lenkung (Pure Pursuit)

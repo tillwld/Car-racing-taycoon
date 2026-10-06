@@ -1,16 +1,19 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useLoadedGame } from '../store';
 import { Btn, Modal, Seg, Switch } from '../components/common';
-import { clearGame, exportSave, importSave } from '../../game/save';
+import { clearGame, downloadSave, exportSave, importSave, parseSave } from '../../game/save';
 import type { Settings } from '../../types';
+import { KeyBindings } from './KeyBindings';
 
 export default function SettingsScreen({ onQuit }: { onQuit: () => void }) {
-  const { game: g, update, setGame, toast } = useLoadedGame();
+  const { game: g, update, setGame, toast, saveInfo, syncNow, restoreFromCloud } = useLoadedGame();
   const s = g.settings;
   const set = (p: Partial<Settings>) => update((st) => void Object.assign(st.settings, p));
   const [exported, setExported] = useState('');
   const [importText, setImportText] = useState('');
   const [confirmReset, setConfirmReset] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   return (
     <>
@@ -20,7 +23,7 @@ export default function SettingsScreen({ onQuit }: { onQuit: () => void }) {
           <div className="field" style={{ marginTop: 8 }}>
             <span className="lbl">Kamera im Rennen</span>
             <Seg value={s.camera} onChange={(v) => set({ camera: v })} options={[{ v: 'chase', l: 'Verfolger' }, { v: 'high', l: 'Weit' }, { v: 'cockpit', l: 'Cockpit' }]} />
-            <span className="muted" style={{ fontSize: 12.5 }}>Verfolger zeigt das Auto aus tiefem Winkel von hinten. Weit schaut etwas höher und weiter voraus. Im Rennen wechselt die Taste C.</span>
+            <span className="muted" style={{ fontSize: 12.5 }}>Verfolger zeigt das Auto aus tiefem Winkel von hinten. Weit schaut etwas höher und weiter voraus. Die Kamerataste stellst du unter „Tastenbelegung“ ein.</span>
           </div>
           <div className="field" style={{ marginTop: 8 }}>
             <span className="lbl">Touch-Steuerung</span>
@@ -36,6 +39,10 @@ export default function SettingsScreen({ onQuit }: { onQuit: () => void }) {
             <Seg value={s.difficulty} onChange={(v) => set({ difficulty: v })} options={[{ v: 'easy', l: 'Leicht' }, { v: 'normal', l: 'Normal' }, { v: 'hard', l: 'Schwer' }]} />
           </div>
           <div className="sep" />
+          <details>
+            <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Tastenbelegung</summary>
+            <KeyBindings custom={s.keys} onChange={(keys) => update((st) => { if (keys) st.settings.keys = keys; else delete st.settings.keys; })} toast={toast} />
+          </details>
           <details>
             <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Fahrhilfen und Feintuning</summary>
             <div className="stack" style={{ gap: 8, marginTop: 10 }}>
@@ -74,30 +81,103 @@ export default function SettingsScreen({ onQuit }: { onQuit: () => void }) {
 
           <div className="card stack" style={{ gap: 10 }}>
             <h3>Spielstand</h3>
-            <p className="muted" style={{ fontSize: 13 }}>Der Spielstand wird automatisch in diesem Browser gespeichert. Für ein Backup oder einen Gerätewechsel kannst du ihn als Text kopieren.</p>
-            <div className="row">
-              <Btn onClick={() => setExported(exportSave(g))}>Spielstand exportieren</Btn>
-              <Btn variant="ghost" onClick={() => update((st) => { st.tipsSeen = {}; st.flags.tipQueue = []; })}>Alle Erklärungen wieder anzeigen</Btn>
+            <div className="stack" style={{ gap: 4, fontSize: 13.5 }}>
+              <div className="row between">
+                <span>In diesem Browser</span>
+                <b className={saveInfo.local ? 'good' : 'bad'}>{saveInfo.local ? 'automatisch gespeichert' : 'nicht möglich'}</b>
+              </div>
+              <div className="row between">
+                <span>Dauerhafter Artifact-Speicher</span>
+                <b className={saveInfo.cloud === 'ok' ? 'good' : saveInfo.cloud === 'error' ? 'bad' : 'muted'}>
+                  {saveInfo.cloud === 'off' ? 'hier nicht verfügbar' : saveInfo.cloud === 'wait' ? 'prüft …' : saveInfo.cloud === 'error' ? 'Fehler beim Speichern' : saveInfo.cloudAt ? `gesichert ${new Date(saveInfo.cloudAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} Uhr` : 'bereit'}
+                </b>
+              </div>
             </div>
-            {exported && (
-              <>
-                <textarea id="export" readOnly value={exported} onFocus={(e) => e.currentTarget.select()} aria-label="Exportierter Spielstand" />
+            <p className="muted" style={{ fontSize: 13 }}>
+              Der Spielstand wird laufend im Browser gespeichert. Läuft das Spiel als Artifact in claude.ai, liegt zusätzlich eine Kopie im dauerhaften Speicher: Sie übersteht neue Versionen, gelöschte Browserdaten und Gerätewechsel. Als Datei sicherst du ihn zusätzlich selbst.
+            </p>
+            {saveInfo.cloudNewer && (
+              <div className="tip">
+                <span>Im dauerhaften Speicher liegt ein neuerer Spielstand als hier.</span>
+                <Btn variant="sm" disabled={busy} onClick={async () => { setBusy(true); const ok = await restoreFromCloud(); setBusy(false); toast(ok ? 'Neuerer Spielstand geladen' : 'Laden fehlgeschlagen', ok ? 'good' : 'bad'); }}>Neueren Stand laden</Btn>
+              </div>
+            )}
+            <div className="row">
+              <Btn
+                variant="primary"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  const r = await downloadSave(g);
+                  setBusy(false);
+                  if (r === 'saved') toast('Spielstand als Datei gesichert', 'good');
+                  else if (r === 'error') toast('Die Datei konnte nicht gespeichert werden. Nutze den Text-Export unten.', 'bad');
+                }}
+              >
+                Als Datei sichern
+              </Btn>
+              <Btn onClick={() => fileRef.current?.click()}>Aus Datei laden</Btn>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".json,application/json,text/plain"
+                style={{ display: 'none' }}
+                onChange={async (e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = '';
+                  if (!f) return;
+                  const st = importSave(await f.text());
+                  if (!st) toast('Die Datei ist kein gültiger Spielstand.', 'bad');
+                  else {
+                    setGame(st);
+                    toast(`Spielstand von ${st.team.name} geladen`, 'good');
+                  }
+                }}
+              />
+              {saveInfo.cloud !== 'off' && (
                 <Btn
-                  variant="sm"
-                  onClick={() => {
-                    navigator.clipboard?.writeText(exported).then(
-                      () => toast('In die Zwischenablage kopiert', 'good'),
-                      () => {
-                        (document.getElementById('export') as HTMLTextAreaElement | null)?.select();
-                        toast('Text markiert – bitte manuell kopieren');
-                      },
-                    );
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true);
+                    const ok = await syncNow();
+                    setBusy(false);
+                    toast(ok ? 'Im dauerhaften Speicher gesichert' : 'Sichern fehlgeschlagen', ok ? 'good' : 'bad');
                   }}
                 >
-                  Kopieren
+                  Jetzt dauerhaft sichern
                 </Btn>
-              </>
-            )}
+              )}
+            </div>
+            <details>
+              <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Spielstand als Text kopieren oder einfügen</summary>
+              <div className="stack" style={{ gap: 10, marginTop: 10 }}>
+                <div className="row">
+                  <Btn onClick={() => setExported(exportSave(g))}>Spielstand exportieren</Btn>
+                </div>
+                {exported && (
+                  <>
+                    <textarea id="export" readOnly value={exported} onFocus={(e) => e.currentTarget.select()} aria-label="Exportierter Spielstand" />
+                    <Btn
+                      variant="sm"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(exported).then(
+                          () => toast('In die Zwischenablage kopiert', 'good'),
+                          () => {
+                            (document.getElementById('export') as HTMLTextAreaElement | null)?.select();
+                            toast('Text markiert – bitte manuell kopieren');
+                          },
+                        );
+                      }}
+                    >
+                      Kopieren
+                    </Btn>
+                  </>
+                )}
+              </div>
+            </details>
+            <div className="row">
+              <Btn variant="ghost" onClick={() => update((st) => { st.tipsSeen = {}; st.flags.tipQueue = []; })}>Alle Erklärungen wieder anzeigen</Btn>
+            </div>
             <div className="field">
               <label htmlFor="import">Spielstand importieren</label>
               <textarea id="import" value={importText} onChange={(e) => setImportText(e.target.value)} placeholder="Exportierten Text hier einfügen" />
@@ -105,7 +185,7 @@ export default function SettingsScreen({ onQuit }: { onQuit: () => void }) {
             <Btn
               disabled={!importText.trim()}
               onClick={() => {
-                const st = importSave(importText);
+                const st = importSave(importText) ?? parseSave(importText);
                 if (!st) toast('Der Text ist kein gültiger Spielstand.', 'bad');
                 else {
                   setGame(st);

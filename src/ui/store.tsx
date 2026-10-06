@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { GameState } from '../types';
-import { loadGame, saveGame } from '../game/save';
+import { loadGame, parseSave, saveGame, serialize } from '../game/save';
+import { cloud } from '../game/cloud';
 import { newAchievements } from '../game/state';
 import { applyOffline, claimMissions, hasPendingMissions, incomePerSec } from '../game/tycoon';
 import { sound } from '../audio/sound';
@@ -19,8 +20,25 @@ interface Ctx {
   toast: (text: string, tone?: Toast['tone']) => void;
   toasts: Toast[];
   saveOk: boolean;
+  /** Zustand des Speicherns: im Browser und (im Artifact) im dauerhaften Speicher */
+  saveInfo: SaveInfo;
+  /** false, solange noch geprüft wird, ob es im Artifact-Speicher einen Spielstand gibt (höchstens ein paar Sekunden) */
+  cloudChecked: boolean;
+  /** Sofort in den dauerhaften Speicher schreiben */
+  syncNow: () => Promise<boolean>;
+  /** Spielstand aus dem dauerhaften Speicher holen und übernehmen */
+  restoreFromCloud: () => Promise<boolean>;
   /** Pausiert das passive Einkommen (z. B. während eines Rennens) */
   setIncomePaused: (p: boolean) => void;
+}
+
+export interface SaveInfo {
+  local: boolean;
+  /** off = kein dauerhafter Speicher verfügbar, wait = schreibt/prüft gerade, ok = gesichert, error = fehlgeschlagen */
+  cloud: 'off' | 'wait' | 'ok' | 'error';
+  at: number; // letzter erfolgreicher Zeitpunkt im Browser
+  cloudAt: number; // letzter erfolgreicher Zeitpunkt im dauerhaften Speicher
+  cloudNewer: boolean; // dort liegt ein neuerer Stand, der nicht automatisch geladen wurde
 }
 
 const GameCtx = createContext<Ctx | null>(null);
@@ -45,6 +63,14 @@ export function GameProvider({ children }: { children: ReactNode }) {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [saveOk, setSaveOk] = useState(true);
+  const [saveInfo, setSaveInfo] = useState<SaveInfo>({ local: true, cloud: 'off', at: 0, cloudAt: 0, cloudNewer: false });
+  const [cloudChecked, setCloudChecked] = useState(false);
+  const touched = useRef(false); // der Spieler hat etwas verändert (Einkommens-Takt zählt nicht)
+  const cloudOn = useRef(false);
+  const cloudBusy = useRef(false);
+  const cloudDirty = useRef(false);
+  const cloudTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const syncRef = useRef<() => Promise<boolean>>(async () => false);
 
   const toast = useCallback((text: string, tone: Toast['tone'] = 'info') => {
     const id = toastId++;
@@ -60,12 +86,23 @@ export function GameProvider({ children }: { children: ReactNode }) {
     }
   }, [toast]);
 
+  const scheduleCloud = useCallback((delay = 15000) => {
+    if (!cloudOn.current || cloudTimer.current) return;
+    cloudTimer.current = setTimeout(() => {
+      cloudTimer.current = null;
+      void syncRef.current();
+    }, delay);
+  }, []);
+
   const doSave = useCallback(() => {
     const cur = ref.current;
     if (!cur || cur === savedRef.current) return;
     savedRef.current = cur;
-    setSaveOk(saveGame(cur));
-  }, []);
+    const ok = saveGame(cur);
+    setSaveOk(ok);
+    setSaveInfo((i) => (i.local === ok ? i : { ...i, local: ok, at: ok ? Date.now() : i.at }));
+    scheduleCloud();
+  }, [scheduleCloud]);
   const scheduleSave = useCallback(() => {
     if (saveTimer.current) return;
     saveTimer.current = setTimeout(() => {
@@ -87,6 +124,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
         return err;
       }
       ref.current = draft;
+      touched.current = true;
       setGameState(draft);
       flushAchievements();
       scheduleSave();
@@ -97,6 +135,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   const setGame = useCallback((g: GameState | null) => {
     ref.current = g;
+    touched.current = true;
     setGameState(g);
     flushAchievements();
     scheduleSave();
@@ -117,6 +156,89 @@ export function GameProvider({ children }: { children: ReactNode }) {
       document.removeEventListener('visibilitychange', onVis);
     };
   }, [doSave]);
+
+  // Dauerhafter Speicher (nur im Artifact): schreiben, wenn sich etwas geändert hat, und beim Start den neueren Stand holen
+  useEffect(() => {
+    syncRef.current = async () => {
+      if (!cloudOn.current) return false;
+      if (cloudBusy.current) {
+        cloudDirty.current = true;
+        return false;
+      }
+      const cur = ref.current;
+      if (!cur) return false;
+      cloudBusy.current = true;
+      cloudDirty.current = false;
+      setSaveInfo((i) => ({ ...i, cloud: 'wait' }));
+      const at = Date.now();
+      const ok = await cloud.save(serialize(cur, at), at);
+      cloudBusy.current = false;
+      setSaveInfo((i) => ({ ...i, cloud: ok ? 'ok' : 'error', cloudAt: ok ? at : i.cloudAt, cloudNewer: ok ? false : i.cloudNewer }));
+      if (cloudDirty.current) scheduleCloud();
+      return ok;
+    };
+    let dead = false;
+    const timeout = setTimeout(() => !dead && setCloudChecked(true), 2800);
+    (async () => {
+      const there = await cloud.available();
+      if (dead) return;
+      if (!there) {
+        setCloudChecked(true);
+        return;
+      }
+      cloudOn.current = true;
+      setSaveInfo((i) => ({ ...i, cloud: 'wait' }));
+      const r = await cloud.load();
+      if (dead) return;
+      const localAt = ref.current?.savedAt ?? 0;
+      if (r && r.savedAt > localAt + 1000) {
+        const g = parseSave(r.json);
+        if (g && !touched.current) {
+          applyOffline(g);
+          ref.current = g;
+          savedRef.current = g;
+          setGameState(g);
+          setSaveInfo((i) => ({ ...i, cloud: 'ok', cloudAt: r.savedAt }));
+          toast('Spielstand aus dem dauerhaften Artifact-Speicher geladen', 'good');
+        } else setSaveInfo((i) => ({ ...i, cloud: 'ok', cloudAt: r.savedAt, cloudNewer: !!g }));
+      } else {
+        setSaveInfo((i) => ({ ...i, cloud: 'ok', cloudAt: r?.savedAt ?? 0 }));
+        if (ref.current) scheduleCloud(1500);
+      }
+      setCloudChecked(true);
+    })();
+    const onHide = () => {
+      if (document.hidden) void syncRef.current();
+    };
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', onHide);
+    return () => {
+      dead = true;
+      clearTimeout(timeout);
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', onHide);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const syncNow = useCallback(async () => {
+    doSave();
+    return syncRef.current();
+  }, [doSave]);
+
+  const restoreFromCloud = useCallback(async () => {
+    const r = await cloud.load();
+    const g = r ? parseSave(r.json) : null;
+    if (!g) return false;
+    applyOffline(g);
+    ref.current = g;
+    savedRef.current = null;
+    touched.current = true;
+    setGameState(g);
+    setSaveInfo((i) => ({ ...i, cloud: 'ok', cloudAt: r!.savedAt, cloudNewer: false }));
+    scheduleSave();
+    return true;
+  }, [scheduleSave]);
 
   // Passives Einkommen: einmal pro Sekunde, ohne den ganzen Spielstand zu kopieren
   useEffect(() => {
@@ -163,7 +285,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     root.style.setProperty('--team-ink', inkFor(game.team.color));
   }, [game?.team.color, game?.team.color2, game?.settings.muted, game?.settings.volume]);
 
-  return <GameCtx.Provider value={{ game, update, setGame, toast, toasts, saveOk, setIncomePaused, get: () => ref.current }}>{children}</GameCtx.Provider>;
+  return <GameCtx.Provider value={{ game, update, setGame, toast, toasts, saveOk, saveInfo, cloudChecked, syncNow, restoreFromCloud, setIncomePaused, get: () => ref.current }}>{children}</GameCtx.Provider>;
 }
 
 export function useGame() {

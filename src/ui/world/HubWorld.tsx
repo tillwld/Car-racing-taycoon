@@ -7,6 +7,7 @@ import { STAFF_ROLES } from '../../data/catalog';
 import { PLOTS, plotAvailable, plotCost, plotLevel, plotMaxLevel, plotYield } from '../../game/tycoon';
 import { money } from '../../game/util';
 import { sound } from '../../audio/sound';
+import { keyLabel, labelsFor, reverseKeys } from '../../race/keys';
 
 interface Props {
   game: GameState;
@@ -89,6 +90,8 @@ export default function HubWorld({ game, paused, hidden = false, alerts, objecti
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const key = spotKey(game);
+  const kmap = reverseKeys(game.settings.keys).map;
+  const keyHint = [kmap.up[0], kmap.left[0], kmap.down[0], kmap.right[0]].map(keyLabel).join(' ');
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const layout = useMemo(() => buildLayout(game), [key]);
   const layoutRef = useRef(layout);
@@ -352,8 +355,8 @@ export default function HubWorld({ game, paused, hidden = false, alerts, objecti
     const step = (dt: number) => {
       const p = player.current;
       const k = keys.current;
-      let mx = (k.ArrowRight || k.KeyD ? 1 : 0) - (k.ArrowLeft || k.KeyA ? 1 : 0);
-      let my = (k.ArrowDown || k.KeyS ? 1 : 0) - (k.ArrowUp || k.KeyW ? 1 : 0);
+      let mx = (k.right ? 1 : 0) - (k.left ? 1 : 0);
+      let my = (k.down ? 1 : 0) - (k.up ? 1 : 0);
       if (pausedRef.current) mx = my = 0;
       if (mx || my) {
         p.path = [];
@@ -527,17 +530,20 @@ export default function HubWorld({ game, paused, hidden = false, alerts, objecti
       if (pausedRef.current) return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code)) {
-        keys.current[e.code] = true;
+      const acts = reverseKeys(gameRef.current.settings.keys).rev.get(e.code) ?? [];
+      const move = acts.find((a) => a === 'up' || a === 'down' || a === 'left' || a === 'right');
+      if (move) {
+        keys.current[move] = true;
         e.preventDefault();
         setHint(false);
-      } else if ((e.code === 'KeyE' || e.code === 'Enter' || e.code === 'Space') && nearRef.current) {
+      } else if ((acts.includes('interact') || e.code === 'Space') && nearRef.current) {
         e.preventDefault();
         onOpenRef.current(nearRef.current);
       }
     };
     const ku = (e: KeyboardEvent) => {
-      keys.current[e.code] = false;
+      const acts = reverseKeys(gameRef.current.settings.keys).rev.get(e.code) ?? [];
+      for (const a of acts) keys.current[a] = false;
     };
     const blur = () => (keys.current = {});
     window.addEventListener('keydown', kd);
@@ -940,7 +946,7 @@ export default function HubWorld({ game, paused, hidden = false, alerts, objecti
           {isTouch ? (
             <>Tippe auf den Boden, um hinzulaufen. Stell dich auf leuchtende Flächen, um zu bauen.</>
           ) : (
-            <>Laufen mit <kbd className="hub-kbd">WASD</kbd> oder Pfeilen, oder klicke auf ein Ziel. Stell dich auf leuchtende Flächen, um zu bauen. Gebäude betrittst du mit <kbd className="hub-kbd">E</kbd>.</>
+            <>Laufen mit <kbd className="hub-kbd">{keyHint}</kbd>, oder klicke auf ein Ziel. Stell dich auf leuchtende Flächen, um zu bauen. Gebäude betrittst du mit <kbd className="hub-kbd">{labelsFor(reverseKeys(game.settings.keys).map, 'interact').split(' / ')[0]}</kbd>.</>
           )}
         </div>
       )}

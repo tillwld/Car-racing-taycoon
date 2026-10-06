@@ -1,4 +1,6 @@
 // Tastatur- und Touch-Eingaben werden zu einem gemeinsamen Steuerzustand zusammengeführt.
+import { reverseKeys, type KeyAction } from './keys';
+
 export interface ControlState {
   up: boolean;
   down: boolean;
@@ -25,48 +27,64 @@ export const newControls = (): ControlState => ({
   tBoost: false,
 });
 
-const MAP: Record<string, keyof ControlState> = {
-  KeyW: 'up',
-  ArrowUp: 'up',
-  KeyS: 'down',
-  ArrowDown: 'down',
-  KeyA: 'left',
-  ArrowLeft: 'left',
-  KeyD: 'right',
-  ArrowRight: 'right',
-  Space: 'boost',
-  ShiftLeft: 'boost',
+const HOLD: Partial<Record<KeyAction, keyof ControlState>> = { up: 'up', down: 'down', left: 'left', right: 'right', boost: 'boost' };
+const ONCE: Partial<Record<KeyAction, string>> = {
+  pit: 'pit',
+  camera: 'camera',
+  mute: 'mute',
+  tower: 'tower',
+  line: 'line',
+  reset: 'reset',
+  pitFuel: 'pit:fuel',
+  pitRepair: 'pit:repair',
 };
 
-export function bindKeyboard(ctrl: ControlState, onAction: (action: string) => void) {
+/** Tastatur anbinden. getCustom liefert die eigenen Tasten aus den Einstellungen und wird bei jedem Tastendruck gelesen. */
+export function bindKeyboard(ctrl: ControlState, onAction: (action: string) => void, getCustom: () => Partial<Record<string, string[]>> | undefined) {
   const down = (e: KeyboardEvent) => {
-    const k = MAP[e.code];
-    if (k) {
-      (ctrl as any)[k] = true;
+    const acts = reverseKeys(getCustom()).rev.get(e.code) ?? [];
+    let handled = false;
+    for (const a of acts) {
+      const hold = HOLD[a];
+      if (hold) {
+        (ctrl as any)[hold] = true;
+        handled = true;
+      }
+    }
+    if (handled) {
       e.preventDefault();
       return;
     }
     if (e.repeat) return;
-    if (e.code === 'KeyP' || e.code === 'KeyB') onAction('pit');
-    else if (e.code === 'Escape') onAction('pause');
-    else if (e.code === 'KeyC') onAction('camera');
-    else if (e.code === 'KeyM') onAction('mute');
-    else if (e.code === 'KeyT') onAction('tower');
-    else if (e.code === 'KeyL') onAction('line');
-    else if (e.code === 'KeyR') onAction('reset');
-    else if (/^Digit[1-5]$/.test(e.code)) onAction(`pit:${e.code.slice(5)}`);
-    else if (e.code === 'KeyF') onAction('pit:fuel');
-    else if (e.code === 'KeyE') onAction('pit:repair');
+    if (e.code === 'Escape') {
+      onAction('pause');
+      return;
+    }
+    const digit = /^Digit([1-5])$/.exec(e.code);
+    if (digit) {
+      onAction(`pit:${digit[1]}`);
+      return;
+    }
+    for (const a of acts) {
+      const once = ONCE[a];
+      if (once) {
+        onAction(once);
+        return;
+      }
+    }
   };
   const up = (e: KeyboardEvent) => {
-    const k = MAP[e.code];
-    if (k) {
-      (ctrl as any)[k] = false;
-      e.preventDefault();
+    const acts = reverseKeys(getCustom()).rev.get(e.code) ?? [];
+    for (const a of acts) {
+      const hold = HOLD[a];
+      if (hold) {
+        (ctrl as any)[hold] = false;
+        e.preventDefault();
+      }
     }
   };
   const blur = () => {
-    for (const k of Object.values(MAP)) (ctrl as any)[k] = false;
+    for (const k of ['up', 'down', 'left', 'right', 'boost'] as const) ctrl[k] = false;
   };
   window.addEventListener('keydown', down);
   window.addEventListener('keyup', up);

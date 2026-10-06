@@ -247,3 +247,79 @@ export function chevronTexture() {
   ctx.stroke();
   return finish(c, { aniso: 4 });
 }
+
+/** Rundes Tempolimit-Schild: weiß mit rotem Ring */
+export function speedSignTexture(text: string) {
+  const c = makeCanvas(256, 256);
+  const ctx = c.getContext('2d')!;
+  ctx.clearRect(0, 0, 256, 256);
+  ctx.beginPath();
+  ctx.arc(128, 128, 122, 0, Math.PI * 2);
+  ctx.fillStyle = '#c8161d';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(128, 128, 90, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+  ctx.fillStyle = '#111';
+  ctx.font = '800 100px "Saira Condensed", "Arial Narrow", Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 128, 136);
+  return finish(c, { repeat: false, aniso: 4 });
+}
+
+/** Blaues Boxen-Schild mit weißem P und Pfeil (dir > 0 nach rechts, sonst nach links) */
+export function pitSignTexture(dir: number) {
+  const c = makeCanvas(256, 256);
+  const ctx = c.getContext('2d')!;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, 256, 256);
+  ctx.fillStyle = '#0b4fa8';
+  ctx.fillRect(10, 10, 236, 236);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '800 150px "Saira Condensed", Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('P', 128, 100);
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 16;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  const d = dir > 0 ? 1 : -1;
+  ctx.beginPath();
+  ctx.moveTo(128 - 62 * d, 206);
+  ctx.lineTo(128 + 62 * d, 206);
+  ctx.moveTo(128 + 30 * d, 180);
+  ctx.lineTo(128 + 62 * d, 206);
+  ctx.lineTo(128 + 30 * d, 232);
+  ctx.stroke();
+  return finish(c, { repeat: false, aniso: 4 });
+}
+
+/** Runde Aufhebung des Tempolimits (grau durchgestrichen) */
+export function endLimitTexture(text = '90') {
+  const c = makeCanvas(256, 256);
+  const ctx = c.getContext('2d')!;
+  ctx.clearRect(0, 0, 256, 256);
+  ctx.beginPath();
+  ctx.arc(128, 128, 122, 0, Math.PI * 2);
+  ctx.fillStyle = '#262a2e';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(128, 128, 112, 0, Math.PI * 2);
+  ctx.fillStyle = '#f2f2f2';
+  ctx.fill();
+  ctx.fillStyle = '#9aa1a6';
+  ctx.font = '800 96px "Saira Condensed", Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 128, 136);
+  ctx.strokeStyle = '#262a2e';
+  ctx.lineWidth = 16;
+  ctx.beginPath();
+  ctx.moveTo(52, 204);
+  ctx.lineTo(204, 52);
+  ctx.stroke();
+  return finish(c, { repeat: false, aniso: 4 });
+}

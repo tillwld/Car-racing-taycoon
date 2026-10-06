@@ -12,7 +12,9 @@ npm run preview    # Produktionsbuild lokal ansehen
 npm run build:artifact   # Alles in eine einzelne HTML-Seite bündeln (artifact/apex-rennstall.html)
 ```
 
-Der Spielstand wird automatisch im `localStorage` des Browsers gespeichert. Unter *Einstellungen* lässt er sich als Text exportieren und wieder importieren.
+Der Spielstand wird automatisch im `localStorage` des Browsers gespeichert (mit Sicherheitskopie des vorherigen Stands). Läuft das Spiel als Artifact in claude.ai, liegt zusätzlich eine komprimierte Kopie im privaten Bereich der Artifact-Datenbank: Sie übersteht neue Versionen und gelöschte Browserdaten, und beim Start gewinnt der neuere Stand. Unter *Einstellungen → Spielstand* lässt er sich außerdem als Datei sichern und laden (oder als Text kopieren). Ein bewusst gelöschtes Team bleibt auf dem Titelbildschirm wiederherstellbar.
+
+Das Team gilt ab der Gründung als fertig: Wenn Sponsorverträge auslaufen oder ein Fahrer geht, bleibt der Spielstand bestehen und die Stellen lassen sich neu besetzen.
 
 ## Spielprinzip
 
@@ -57,9 +59,13 @@ Das Qualifying schaltet sich nach dem ersten Rennen frei. Bis dahin wird der Sta
 
 Auf Touch-Geräten erscheinen virtuelle Tasten.
 
-**Boxengasse:** Mit P meldest du dich an die Box. Eine Anzeige oben zählt die Meter bis zur Einfahrt herunter und sagt, auf welcher Seite die Boxengasse liegt. Sie zweigt kurz vor Start und Ziel von der Strecke ab, hat eine Boxenmauer, eine Fahrspur mit Tempo 80 und eine Arbeitsspur vor den Garagen. Das Auto fährt dort geführt: Ein Mechanikerteam wechselt die Reifen, danach gibt die Ausfahrtsampel die Strecke frei. Du kannst auch ohne P einfach auf die breite Zufahrt abbiegen: Dann meldet dich das Team automatisch an und schlägt Reifen vor. In der Gasse sagt P den Stopp noch ab (dann fährst du nur durch). Verpasst du die Einfahrt, gilt der Wunsch für die nächste Runde; in der letzten Runde wird kein Stopp mehr gemacht. Auf der Teststrecke lässt sich die Gasse nur durchfahren. Die KI macht ihre Stopps nach demselben Prinzip.
+**Boxengasse:** Mit P meldest du dich an die Box. Eine Anzeige oben zählt die Meter bis zur Einfahrt herunter und sagt, auf welcher Seite die Boxengasse liegt. Sie zweigt kurz vor Start und Ziel von der Strecke ab, hat eine Boxenmauer, eine Fahrspur mit Tempo 90 und eine Arbeitsspur vor den Garagen. Das Auto fährt dort geführt: Ein Mechanikerteam wechselt die Reifen, danach gibt die Ausfahrtsampel die Strecke frei. Du kannst auch ohne P einfach auf die breite Zufahrt abbiegen: Dann meldet dich das Team automatisch an und schlägt Reifen vor. In der Gasse sagt P den Stopp noch ab (dann fährst du nur durch). Verpasst du die Einfahrt, gilt der Wunsch für die nächste Runde; in der letzten Runde wird kein Stopp mehr gemacht. Auf der Teststrecke lässt sich die Gasse nur durchfahren. Die KI macht ihre Stopps nach demselben Prinzip.
 
 **Fahrgefühl:** Die Kamera hängt tief hinter dem Auto und schaut weit voraus, das Sichtfeld wächst mit dem Tempo. Es gibt keine Bremsanweisungen: Du bremst nach den Schildern an der Strecke (3 – 2 – 1 Striche bei 150, 100 und 50 m) und nach Gefühl. Wer Hilfe möchte, schaltet unter *Einstellungen → Fahrhilfen* die Kurvenvorschau oder die Ideallinie ein. Ohne WebGL fällt das Spiel automatisch auf eine einfache Draufsicht zurück.
+
+**Tastenbelegung:** Alle Tasten lassen sich unter *Einstellungen → Fahren → Tastenbelegung* ändern (pro Aktion zwei Tasten, Konflikte werden gemeldet, „Standardtasten wiederherstellen“ setzt alles zurück). Die Richtungstasten gelten auch zum Laufen auf dem Gelände. Fest sind nur Esc (Pause) und 1 bis 5 im Boxenmenü.
+
+**Gegner:** Jeder KI-Fahrer hat pro Rennen eine Tagesform (Team und Fahrer), pro Runde eine Stimmung (Glanzrunde oder unsaubere Runde), fährt je Runde eine leicht andere Spur und pendelt auf Geraden neben der Ideallinie. Dazu kommen Fehler: Verbremser, Ausrutscher ins Gras und unsichere Phasen. Die Ideallinie läuft auf Geraden mittig und geht erst vor Kurven nach außen (außen – innen – außen).
 
 ## Wie die Systeme zusammenhängen
 

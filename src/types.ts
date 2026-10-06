@@ -294,10 +294,14 @@ export interface Settings {
   difficulty: 'easy' | 'normal' | 'hard';
   raceLength: 'short' | 'medium' | 'long';
   quality: 'low' | 'high';
+  /** Eigene Tastenbelegung (nur geänderte Aktionen); fehlende Einträge nutzen die Standardtasten */
+  keys?: Partial<Record<string, string[]>>;
 }
 
 export interface GameState {
   version: number;
+  /** Zeitpunkt des letzten Speicherns (Millisekunden), damit der neuere von mehreren Ständen gewinnt */
+  savedAt?: number;
   created: boolean;
   createdAt: number;
   team: Team;

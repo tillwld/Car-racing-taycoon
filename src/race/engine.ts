@@ -3,7 +3,7 @@
 import type { Compound, TrackDef, WeatherKind, WeatherSegment } from '../types';
 import type { TrackGeometry } from './trackGeometry';
 import { nearestIndex, nearestIndexGlobal, pointAt, wrapIndex } from './trackGeometry';
-import { PIT, AIR_TEMP, compoundGrip, TEMP_WINDOW, WETNESS, bestCompoundFor, type DriverParams, type EntryStrategy, type PhysicsParams } from './params';
+import { PIT, PIT_KMH, AIR_TEMP, compoundGrip, TEMP_WINDOW, WETNESS, bestCompoundFor, type DriverParams, type EntryStrategy, type PhysicsParams } from './params';
 import { aiControl, computeProfile, type AIState } from './ai';
 import { COMPOUNDS } from '../data/catalog';
 
@@ -166,6 +166,9 @@ export class RaceEngine {
   pitWorkLat: number; // Arbeitsspur an den Boxen
   pitLen: number; // Länge der gesamten Boxengasse
   exitRed = false; // Ausfahrtsampel
+  exitOverride = 0; // wer lange genug gewartet hat, öffnet die Ausfahrt kurz für alle dahinter
+  /** Zähler für Tests und Statistik: Fehler, Glanzrunden, unsaubere Runden der KI */
+  aiEvents = { mistakes: 0, flow: 0, rough: 0 };
   humanInput: Input = { throttle: 0, brake: 0, steer: 0, boost: false };
   humanId: string | null = null;
   autopilotHuman = false;
@@ -181,16 +184,21 @@ export class RaceEngine {
     this.geo = cfg.geo;
     const L = this.geo.length;
     this.pitSide = this.geo.turnSign >= 0 ? 1 : -1;
-    this.pitIn = L - 230;
-    this.pitOut = 230;
-    this.pitLen = 460;
+    this.pitIn = L - PIT.before;
+    this.pitOut = PIT.after;
+    this.pitLen = PIT.before + PIT.after;
     this.pitLat = this.pitSide * (this.geo.halfWidth + PIT.fast);
     this.pitWorkLat = this.pitSide * (this.geo.halfWidth + PIT.work);
     this.raceDist = cfg.laps * L;
     this.wearDist = Math.max(cfg.wearScaleLaps ?? cfg.laps, 6) * L;
     this.weatherNow = cfg.weather[0]?.kind ?? 'sunny';
     this.wetness = WETNESS[this.weatherNow];
+    // Tagesform des Teams (gilt für beide Autos) und des einzelnen Fahrers: sorgt für wechselnde Kräfteverhältnisse von Rennen zu Rennen
+    const gaussR = () => (Math.random() + Math.random() + Math.random() + Math.random() - 2) * 1.7;
+    const teamForm: Record<string, number> = {};
+    for (const e of cfg.entries) if (teamForm[e.teamId] === undefined) teamForm[e.teamId] = gaussR();
     this.cars = cfg.grid.map((id, i) => this.makeCar(cfg.entries.find((e) => e.id === id)!, i));
+    for (const c of this.cars) c.ai.form = Math.max(-2.2, Math.min(2.2, teamForm[c.cfg.teamId] * 0.7 + c.ai.form * 0.75));
     this.byId = Object.fromEntries(this.cars.map((c) => [c.cfg.id, c]));
     const human = this.cars.find((c) => c.cfg.human);
     this.humanId = human ? human.cfg.id : null;
@@ -229,11 +237,18 @@ export class RaceEngine {
       profile: new Float32Array(g.n),
       profileTimer: 0,
       profileGrip: 0,
-      startDelay: 0.18 + (100 - e.driver.reaction) * 0.006 + Math.random() * 0.15,
+      startDelay: 0.18 + (100 - e.driver.reaction) * 0.006 + Math.random() * 0.28,
       boostTimer: 0,
       defendTimer: 0,
       lastCornerIdx: -999,
       blocked: 0,
+      form: Math.max(-2, Math.min(2, (Math.random() + Math.random() + Math.random() + Math.random() - 2) * 1.7)),
+      mood: 0,
+      moodLap: -1,
+      lapBiasLap: -1,
+      bias: 999,
+      wander: 0,
+      offSide: 1,
     };
     const startDist = this.cfg.mode === 'race' ? s - g.length : -260;
     return {
@@ -430,6 +445,7 @@ export class RaceEngine {
     }
     this.time += dt;
     this.updateWeather(dt);
+    this.exitOverride = Math.max(0, this.exitOverride - dt);
     this.updateExitLight();
     for (const c of this.cars) {
       if (c.dnf) continue;
@@ -976,7 +992,7 @@ export class RaceEngine {
     let err = c.h - (Math.atan2(p.ty, p.tx) + ang);
     err = Math.atan2(Math.sin(err), Math.cos(err));
     c.pitHeadErr = err;
-    if (c.cfg.human && !drive) this.msg('Boxengasse: Limiter aktiv (80 km/h).', 'info', c.cfg.id);
+    if (c.cfg.human && !drive) this.msg(`Boxengasse: Limiter aktiv (${PIT_KMH} km/h).`, 'info', c.cfg.id);
     this.onEvent?.({ type: 'pitEntry', carId: c.cfg.id });
   }
 
@@ -1018,12 +1034,12 @@ export class RaceEngine {
       if (o.dnf || o.pit !== 'none') continue;
       let d = (((this.pitOut - o.s) % L) + L) % L;
       if (d > L / 2) d -= L;
-      if (d > -14 && d < o.speed * 2.4 + 35 && o.lat * this.pitSide > -this.geo.halfWidth * 0.2) {
+      if (d > -14 && d < o.speed * 1.5 + 22 && o.lat * this.pitSide > -this.geo.halfWidth * 0.2) {
         red = true;
         break;
       }
     }
-    this.exitRed = red;
+    this.exitRed = red && this.exitOverride <= 0;
   }
 
   // Fahrt durch die Boxengasse (geführt): Zufahrt, Fahrspur mit Limiter, Arbeitsspur, Stopp, Ausfahrt mit Ampel
@@ -1044,11 +1060,11 @@ export class RaceEngine {
         c.speed = 0;
         const req = c.pitReq ?? { compound: c.tyre.compound, repair: false, refuel: false };
         let tm = c.cfg.pitBase;
-        if (req.repair) tm += 2.5 + c.damage.frontWing * 6 + c.damage.suspension * 8;
-        if (req.refuel) tm += 2 + Math.max(0, 1.02 - c.fuel) * 6;
+        if (req.repair) tm += 1.2 + c.damage.frontWing * 3 + c.damage.suspension * 4;
+        if (req.refuel) tm += 1 + Math.max(0, 1.02 - c.fuel) * 3;
         let err = false;
         if (Math.random() < c.cfg.pitError) {
-          tm += 1.5 + Math.random() * 3.5;
+          tm += 1 + Math.random() * 2;
           err = true;
         }
         c.pitTimer = tm;
@@ -1081,9 +1097,12 @@ export class RaceEngine {
       if (cur > xStart) target = Math.min(48, PIT_SPEED + (cur - xStart) * 0.35);
       // Ausfahrtsampel: vor der Einmündung warten, bis die Strecke frei ist (höchstens 5 s)
       const hold = xStart - 2;
-      if (this.exitRed && cur < hold + 3 && c.pitWait < 5) {
+      if (this.exitRed && cur < hold + 3) {
         target = Math.min(target, Math.max(0, (hold - cur) * 1.3));
-        if (cur > hold - 4 && c.speed < 1.2) c.pitWait += dt;
+        if (cur > hold - 4 && c.speed < 1.2) {
+          c.pitWait += dt;
+          if (c.pitWait > 1.6) this.exitOverride = 3.5; // genug gewartet: alle dahinter dürfen jetzt auch raus
+        }
       }
     }
     // Abstand zum Vordermann auf der Fahrspur halten
@@ -1094,7 +1113,7 @@ export class RaceEngine {
         if (gap > 0 && gap < 36 && Math.abs(o.lat - c.lat) < 2.6) target = Math.min(target, Math.max(0, o.speed + (gap - 8) * 1.5));
       }
     }
-    const acc = target > c.speed ? (c.pit === 'exit' && cur > xStart ? 14 : 9) : 38;
+    const acc = target > c.speed ? (c.pit === 'exit' ? 14 : 9) : 38;
     if (Math.abs(target - c.speed) < acc * dt) c.speed = target;
     else c.speed += Math.sign(target - c.speed) * acc * dt;
     c.throttle = target > c.speed ? 0.4 : 0;

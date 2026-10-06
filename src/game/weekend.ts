@@ -241,8 +241,8 @@ export function buildEntries(s: GameState, mode: SessionMode, humanDriverId: str
           driver: { ...d.stats },
           strategy: aiStrategy(w.laps, startKind, aggr),
           damage: { engine: 0, gearbox: 0, brakes: 0, frontWing: 0, suspension: 0 },
-          pitBase: 2.2 + (100 - team.pitCrew) * 0.04,
-          pitError: 0.01 + 0.1 * (1 - team.pitCrew / 100),
+          pitBase: 1.6 + (100 - team.pitCrew) * 0.02,
+          pitError: 0.01 + 0.08 * (1 - team.pitCrew / 100),
           boxIndex: ti,
           paceMul: DIFF[s.settings.difficulty],
         };

@@ -3,8 +3,9 @@ import { RaceEngine, type CarSim, type PitRequest, type RaceConfig } from '../..
 import { RaceRenderer } from '../../race/renderer';
 import { RaceRenderer3D } from '../../race/renderer3d';
 import { bindKeyboard, isTouchDevice, newControls, readInput } from '../../race/input';
+import { labelsFor, reverseKeys } from '../../race/keys';
 import { computeProfile } from '../../race/ai';
-import { PIT } from '../../race/params';
+import { PIT, PIT_KMH } from '../../race/params';
 import { sound } from '../../audio/sound';
 import { COMPOUNDS, COMPOUND_KEYS, WEATHER_LABELS } from '../../data/catalog';
 import type { Compound, Settings } from '../../types';
@@ -122,6 +123,8 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const touch = settings.touchControls === 'on' || (settings.touchControls === 'auto' && isTouchDevice());
+  const km = reverseKeys(settings.keys).map;
+  const K = (a: Parameters<typeof labelsFor>[1]) => labelsFor(km, a);
   const spectate = humanId === null;
 
   // Engine + Renderer + Spielschleife
@@ -179,7 +182,7 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
           break;
       }
     };
-    const unbind = bindKeyboard(ctrl.current, (a) => action(a));
+    const unbind = bindKeyboard(ctrl.current, (a) => action(a), () => settingsRef.current.keys);
     let raf = 0;
     let last = performance.now();
     let acc = 0;
@@ -504,7 +507,7 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
                   ) : h.pit.phase === 'stop' ? (
                     <b>{h.pit.timer.toFixed(1)}</b>
                   ) : (
-                    <b>80</b>
+                    <b>{PIT_KMH}</b>
                   )}
                 </span>
                 <span className="pit-txt">
@@ -513,14 +516,14 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
                       <b>{h.pit.dist > 0 ? `BOX in ${Math.max(10, Math.round(h.pit.dist / 10) * 10)} m` : `JETZT ${h.pit.side > 0 ? 'RECHTS' : 'LINKS'} EINBIEGEN`}</b>
                       <small>
                         {h.pit.dist > 0
-                          ? `Halte dich ${h.pit.side > 0 ? 'rechts' : 'links'} und fahr in die Boxengasse. Dort gilt Tempo 80.`
+                          ? `Halte dich ${h.pit.side > 0 ? 'rechts' : 'links'} und fahr in die Boxengasse. Dort gilt Tempo ${PIT_KMH}.`
                           : 'Die Boxengasse zweigt jetzt von der Strecke ab.'}
                       </small>
                     </>
                   )}
                   {h.pit.phase === 'lane' && (
                     <>
-                      <b>Boxengasse · Limiter 80 km/h</b>
+                      <b>Boxengasse · Limiter {PIT_KMH} km/h</b>
                       <small>{h.pit.drive ? 'Durchfahrt ohne Stopp. Du musst nichts tun.' : h.pit.cancel ? 'Dein Team wartet an der Box. Mit P sagst du den Stopp noch ab.' : 'Dein Team wartet an der Box. Du musst nichts tun.'}</small>
                     </>
                   )}
@@ -567,11 +570,11 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
                   </div>
                 ) : (
                   <div className="intro-keys">
-                    <span><kbd>W</kbd> / <kbd>↑</kbd> Gas</span>
-                    <span><kbd>S</kbd> / <kbd>↓</kbd> Bremse</span>
-                    <span><kbd>A</kbd> <kbd>D</kbd> / <kbd>←</kbd> <kbd>→</kbd> Lenken</span>
-                    <span><kbd>Leertaste</kbd> Boost</span>
-                    <span><kbd>C</kbd> Kamera</span>
+                    <span><kbd>{K('up')}</kbd> Gas</span>
+                    <span><kbd>{K('down')}</kbd> Bremse</span>
+                    <span><kbd>{K('left')}</kbd> <kbd>{K('right')}</kbd> Lenken</span>
+                    <span><kbd>{K('boost')}</kbd> Boost</span>
+                    <span><kbd>{K('camera')}</kbd> Kamera</span>
                   </div>
                 )}
                 <small>Bremse vor den Kurven. An der Strecke stehen Schilder mit 3 – 2 – 1 Strichen (150, 100, 50 m).</small>
@@ -668,10 +671,10 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
                   ))}
                 </div>
                 <label className="row" style={{ fontSize: 14 }}>
-                  <input type="checkbox" checked={h.pitReq.repair} onChange={(e) => updatePit({ repair: e.target.checked })} /> Schäden reparieren {!touch && <kbd>E</kbd>}
+                  <input type="checkbox" checked={h.pitReq.repair} onChange={(e) => updatePit({ repair: e.target.checked })} /> Schäden reparieren {!touch && <kbd>{K('pitRepair')}</kbd>}
                 </label>
                 <label className="row" style={{ fontSize: 14 }}>
-                  <input type="checkbox" checked={h.pitReq.refuel} onChange={(e) => updatePit({ refuel: e.target.checked })} /> Nachtanken {!touch && <kbd>F</kbd>}
+                  <input type="checkbox" checked={h.pitReq.refuel} onChange={(e) => updatePit({ refuel: e.target.checked })} /> Nachtanken {!touch && <kbd>{K('pitFuel')}</kbd>}
                 </label>
                 <button type="button" className="btn danger sm" onClick={togglePit}>
                   Stopp absagen
@@ -797,15 +800,16 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
               </button>
             </div>
             <div className="keys">
-              <kbd>W / ↑</kbd><span>Gas</span>
-              <kbd>S / ↓</kbd><span>Bremse (im Stand: rückwärts)</span>
-              <kbd>A D / ← →</kbd><span>Lenken</span>
-              <kbd>Leertaste</kbd><span>Boost (Energie für Überholmanöver)</span>
-              {isRace && (<><kbd>P</kbd><span>Boxenstopp anfordern oder absagen</span></>)}
-              {isRace && features.tyres && (<><kbd>1 – 5 · F · E</kbd><span>im Boxenmenü: Reifen · Nachtanken · Reparatur</span></>)}
-              <kbd>R</kbd><span>Auto auf die Strecke zurücksetzen</span>
-              <kbd>C</kbd><span>Kamera wechseln (Verfolger · Weit · Cockpit)</span>
-              <kbd>L · T</kbd><span>Ideallinie · Zeitenliste</span>
+              <kbd>{K('up')}</kbd><span>Gas</span>
+              <kbd>{K('down')}</kbd><span>Bremse (im Stand: rückwärts)</span>
+              <kbd>{K('left')} · {K('right')}</kbd><span>Lenken</span>
+              <kbd>{K('boost')}</kbd><span>Boost (Energie für Überholmanöver)</span>
+              {isRace && (<><kbd>{K('pit')}</kbd><span>Boxenstopp anfordern oder absagen</span></>)}
+              {isRace && features.tyres && (<><kbd>1 – 5 · {K('pitFuel')} · {K('pitRepair')}</kbd><span>im Boxenmenü: Reifen · Nachtanken · Reparatur</span></>)}
+              <kbd>{K('reset')}</kbd><span>Auto auf die Strecke zurücksetzen</span>
+              <kbd>{K('camera')}</kbd><span>Kamera wechseln (Verfolger · Weit · Cockpit)</span>
+              <kbd>{K('line')} · {K('tower')}</kbd><span>Ideallinie · Zeitenliste</span>
+              <kbd>Tastenbelegung</kbd><span>änderbar unter Einstellungen → Fahren</span>
               <kbd>Esc</kbd><span>Pause</span>
             </div>
           </div>

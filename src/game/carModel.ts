@@ -48,8 +48,8 @@ export function pitCrewTime(s: GameState) {
   const mech = staffSkill(s, 'mechanic') || 15;
   const chief = staffSkill(s, 'chiefMechanic') || 15;
   const { pitBonus } = researchExtras(s);
-  const base = 2.25 + (100 - mech) * 0.042 + (100 - chief) * 0.01 - pitBonus;
-  return { base: Math.max(1.85, base), error: Math.max(0.01, 0.13 * (1 - mech / 100)) };
+  const base = 1.5 + (100 - mech) * 0.018 + (100 - chief) * 0.005 - pitBonus;
+  return { base: Math.max(1.4, base), error: Math.max(0.01, 0.1 * (1 - mech / 100)) };
 }
 
 export function partCost(s: GameState, part: keyof typeof PARTS): number {

@@ -464,8 +464,12 @@ export function sponsorIncomePerRace(s: GameState) {
   return s.sponsors.reduce((a, sp) => a + sp.perRace, 0);
 }
 
+/**
+ * Ein Spielstand gilt als fertig, sobald das Team gegründet ist. Später darf das nie wieder davon abhängen,
+ * wie viele Fahrer oder Sponsoren gerade unter Vertrag sind: Verträge laufen aus, das Team bleibt bestehen.
+ */
 export function setupComplete(s: GameState) {
-  return !!s.car.chassisId && s.team.driverIds.length >= 2 && s.sponsors.length >= 1;
+  return !!s.created && !!s.car.chassisId;
 }
 
 export type { Sponsor };

@@ -24,7 +24,7 @@ const RaceLoading = () => (
   </div>
 );
 import { setupComplete } from './game/state';
-import { clearGame } from './game/save';
+import { clearGame, deletedGame, forgetDeletedGame } from './game/save';
 import { resolveEvent } from './game/events';
 import { makeFreeDriveConfig, startNextSeason } from './game/weekend';
 import { TIERS } from './data/catalog';
@@ -64,8 +64,12 @@ function Toasts() {
 }
 
 function Root() {
-  const { game, setGame } = useGame();
+  const { game, setGame, cloudChecked } = useGame();
   const [mode, setMode] = useState<'title' | 'onboarding' | 'game'>('title');
+  const [trash, setTrash] = useState(() => deletedGame());
+  useEffect(() => {
+    if (mode === 'title') setTrash(deletedGame());
+  }, [mode]);
   const [confirmNew, setConfirmNew] = useState(false);
   const hasSave = !!game && setupComplete(game);
 
@@ -74,6 +78,15 @@ function Root() {
       <>
         <TitleScreen
           hasSave={hasSave}
+          checking={!cloudChecked}
+          restoreName={trash?.team.name}
+          onRestore={() => {
+            if (!trash) return;
+            setGame(trash);
+            forgetDeletedGame();
+            setTrash(null);
+            setMode('game');
+          }}
           onContinue={() => setMode(hasSave ? 'game' : 'onboarding')}
           onStart={() => (hasSave ? setConfirmNew(true) : setMode('onboarding'))}
         />
@@ -84,6 +97,7 @@ function Root() {
             <div className="row">
               <Btn variant="danger" onClick={() => {
                 clearGame();
+                setTrash(deletedGame());
                 setGame(null);
                 setConfirmNew(false);
                 setMode('onboarding');
@@ -279,7 +293,7 @@ function TipModal({ id, onClose }: { id: string; onClose: () => void }) {
 type FreeSession = { config: ReturnType<typeof makeFreeDriveConfig>['config']; trackId: string; driverId: string; intro: boolean };
 
 function Shell({ onQuit }: { onQuit: () => void }) {
-  const { game, update, saveOk, toast, get, setIncomePaused } = useGame();
+  const { game, update, saveOk, saveInfo, toast, get, setIncomePaused } = useGame();
   const g = game as GameState;
   const [panel, setPanel] = useState<{ key: StationId | 'settings'; tab: Screen; focus?: RaceFocus } | null>(null);
   const [racing, setRacing] = useState(false);
@@ -475,7 +489,7 @@ function Shell({ onQuit }: { onQuit: () => void }) {
             </button>
           ))}
           <div className="sep" />
-          <span className="muted" style={{ fontSize: 12 }}>{saveOk ? 'Automatisch gespeichert' : 'Speichern im Browser nicht möglich'}</span>
+          <span className="muted" style={{ fontSize: 12 }}>{saveOk ? (saveInfo.cloud === 'ok' ? 'Automatisch gespeichert · auch dauerhaft gesichert' : 'Automatisch gespeichert') : 'Speichern im Browser nicht möglich: bitte unter Einstellungen als Datei sichern'}</span>
           <Btn variant="ghost sm" onClick={onQuit}>Zum Titelbildschirm</Btn>
         </div>
       )}

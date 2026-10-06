@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import type { CarSim, RaceEngine } from './engine';
-import { PIT } from './params';
+import { PIT, PIT_KMH } from './params';
 import { drawMiniPit } from './miniPit';
 import { nearestIndexGlobal, pointAt, wrapIndex, type TrackGeometry } from './trackGeometry';
 import type { TrackDef, WeatherKind } from '../types';
@@ -510,18 +510,18 @@ export class RaceRenderer3D {
     };
     // Zufahrt und Ausfahrt: breite Mündung (ca. 7 m) an der Streckenkante, die sich zur Gasse hin öffnet
     const mouth = 6.9;
-    const inner = (k: number) => {
-      const r = relK(k);
+    const innerR = (r: number) => {
       const t = r < eL ? sm(r / eL) : r > xs ? sm(1 - (r - xs) / xL) : 1;
       return side * (hw - 0.4 + (PIT.wall + 0.7) * t);
     };
-    const outer = (k: number) => {
-      const r = relK(k);
+    const outerR = (r: number) => {
       if (r < 0) return side * (hw - 0.4 + mouth * sm((r + taper) / taper));
       if (r > tot) return side * (hw - 0.4 + mouth * sm(1 - (r - tot) / taper));
       const t = r < eL ? sm(r / eL) : r > xs ? sm(1 - (r - xs) / xL) : 1;
       return side * (hw + 6.5 + (PIT.door - 6.5) * t);
     };
+    const inner = (k: number) => innerR(relK(k));
+    const outer = (k: number) => outerR(relK(k));
 
     // Fahrbahn der Boxengasse
     const pitTex = T.noiseTexture('#454b51', 24, 8, 21, 256);
@@ -634,31 +634,59 @@ export class RaceRenderer3D {
     light.add(pole, head, this.lampRed, this.lampGreen);
     this.scene.add(light);
 
-    // Schilder an der Einfahrt
-    const signMat = (t: string, bg: string, fg: string) => new THREE.MeshBasicMaterial({ map: T.bannerTexture(t, bg, fg), side: THREE.DoubleSide });
-    const mkSign = (rel: number, lat: number, y: number, w: number, hgt: number, mat: THREE.Material) => {
+    // Schilder: stehen neben der Zufahrt bzw. Ausfahrt, nie in der Gasse, und sind zum ankommenden Fahrer gedreht
+    const pm = new THREE.MeshStandardMaterial({ color: '#3a4046', roughness: 0.7 });
+    const placeSign = (rel: number, lat: number, build: (grp: THREE.Group) => void) => {
       const p = pointAt(g, e.pitIn + rel, lat);
       const grp = new THREE.Group();
       grp.position.set(p.x, 0, p.y);
       grp.rotation.y = -Math.atan2(p.ty, p.tx);
-      const post = new THREE.CylinderGeometry(0.06, 0.06, y, 6);
-      post.translate(0, y / 2, 0);
-      const pm = new THREE.MeshStandardMaterial({ color: '#3a4046', roughness: 0.7 });
-      for (const z of [-w / 2 + 0.2, w / 2 - 0.2]) {
-        const m = new THREE.Mesh(post, pm);
-        m.position.z = z;
-        grp.add(m);
-      }
-      const board = new THREE.Mesh(new THREE.PlaneGeometry(w, hgt), mat);
-      board.position.set(0, y, 0);
-      board.rotation.y = -Math.PI / 2;
-      grp.add(board);
+      build(grp);
       this.scene.add(grp);
     };
-    mkSign(-110, side * (hw + 8.2), 3.8, 8.4, 2.1, signMat('BOXENEINFAHRT', '#101418', '#ffd23a'));
-    mkSign(-45, side * (hw + 8.2), 3.4, 7.2, 1.8, signMat('PIT  →', '#c8161d', '#ffffff'));
-    mkSign(-8, side * (hw + 7.6), 2.6, 4.2, 1.05, signMat('LIMIT 80', '#ffffff', '#c8161d'));
-    mkSign(e.pitLen - xL + 4, side * (hw + 8.2), 3.2, 5.6, 1.4, signMat('AUSFAHRT', '#101418', '#6ee7a8'));
+    /** Rechteckige Tafel auf zwei Pfosten */
+    const banner = (rel: number, lat: number, y: number, w: number, hgt: number, text: string, bg: string, fg: string) => {
+      const mat = new THREE.MeshBasicMaterial({ map: T.bannerTexture(text, bg, fg) });
+      placeSign(rel, lat, (grp) => {
+        const post = new THREE.CylinderGeometry(0.07, 0.07, y + hgt / 2, 6);
+        post.translate(0, (y + hgt / 2) / 2, 0);
+        for (const z of [-w / 2 + 0.25, w / 2 - 0.25]) {
+          const m = new THREE.Mesh(post, pm);
+          m.position.z = z;
+          grp.add(m);
+        }
+        const board = new THREE.Mesh(new THREE.PlaneGeometry(w, hgt), mat);
+        board.position.set(0.08, y, 0);
+        board.rotation.y = -Math.PI / 2;
+        grp.add(board);
+      });
+    };
+    /** Verkehrszeichen mit einem Pfosten */
+    const roundSign = (rel: number, lat: number, size: number, tex: THREE.Texture, square = false) => {
+      const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: !square, alphaTest: square ? 0 : 0.3 });
+      placeSign(rel, lat, (grp) => {
+        const h0 = 1.5 + size / 2;
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, h0, 6), pm);
+        post.position.y = h0 / 2;
+        const board = new THREE.Mesh(new THREE.PlaneGeometry(size, size), mat);
+        board.position.set(0.07, h0, 0);
+        board.rotation.y = -Math.PI / 2;
+        const back = new THREE.Mesh(new THREE.CircleGeometry(size / 2, 20), new THREE.MeshStandardMaterial({ color: '#6b737a', roughness: 0.7 }));
+        back.position.set(-0.02, h0, 0);
+        back.rotation.y = Math.PI / 2;
+        grp.add(post, board, back);
+      });
+    };
+    const beside = (rel: number, gap: number) => {
+      const o = Math.abs(outerR(rel));
+      return side * Math.max(o + gap, hw + 3.4);
+    };
+    banner(-125, beside(-125, 1.8), 2.9, 8, 1.7, 'BOXENEINFAHRT', '#101418', '#ffd23a');
+    roundSign(-62, beside(-62, 1.7), 1.7, T.pitSignTexture(side), true);
+    roundSign(-6, beside(-6, 1.6), 1.45, T.speedSignTexture(String(PIT_KMH)));
+    // Ausfahrt: Tafel hinter den Garagen-Toren, Ende des Tempolimits kurz vor dem Einmünden
+    banner(xs - 28, side * (hw + PIT.door + 1.4), 2.6, 5.6, 1.3, 'AUSFAHRT', '#101418', '#6ee7a8');
+    roundSign(tot - 22, beside(tot - 22, 1.7), 1.45, T.endLimitTexture(String(PIT_KMH)));
 
     // Fahrbahnpfeile in der Zufahrt, Leitfässer an der Spitze der Boxenmauer
     const chevTex = T.chevronTexture();

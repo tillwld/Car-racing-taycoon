@@ -9,7 +9,7 @@ import { Btn, Logo } from '../components/common';
 const COLORS = ['#ff6a1a', '#e8112d', '#1f6fff', '#13b57a', '#f5c400', '#9b4dff', '#00b7c7', '#ff3d8b', '#f2f2f2', '#1b1f23', '#8fd400', '#c49a5a'];
 const LOGOS: LogoKind[] = ['shield', 'circle', 'chevron', 'wing', 'bolt', 'star', 'hex', 'flag'];
 
-export function TitleScreen({ onStart, onContinue, hasSave }: { onStart: () => void; onContinue?: () => void; hasSave: boolean }) {
+export function TitleScreen({ onStart, onContinue, hasSave, checking = false, restoreName, onRestore }: { onStart: () => void; onContinue?: () => void; hasSave: boolean; checking?: boolean; restoreName?: string | null; onRestore?: () => void }) {
   return (
     <div className="title-screen">
       <svg viewBox="0 0 1000 600" preserveAspectRatio="xMidYMid slice" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0.35 }} aria-hidden="true">
@@ -37,10 +37,17 @@ export function TitleScreen({ onStart, onContinue, hasSave }: { onStart: () => v
               Weiterspielen
             </Btn>
           )}
-          <Btn variant={hasSave ? 'big' : 'primary big'} onClick={onStart} icon="flag">
+          <Btn variant={hasSave ? 'big' : 'primary big'} onClick={onStart} icon="flag" disabled={checking}>
             Neues Team gründen
           </Btn>
         </div>
+        {checking && <p className="muted" style={{ fontSize: 13 }}>Gespeicherter Spielstand wird geprüft …</p>}
+        {!hasSave && restoreName && onRestore && (
+          <div className="tip" style={{ alignItems: 'center' }}>
+            <span>Dein zuletzt gelöschtes Team „{restoreName}“ lässt sich noch wiederherstellen.</span>
+            <Btn variant="sm" onClick={onRestore}>Wiederherstellen</Btn>
+          </div>
+        )}
       </div>
     </div>
   );

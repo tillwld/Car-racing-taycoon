@@ -262,7 +262,7 @@ export function buildTrack(points: P[], halfWidth: number, runoff: number, ds = 
   for (let i = 0; i < n; i++) sumK += k[i];
   const turnSign = sumK >= 0 ? 1 : -1;
 
-  const { lineOff, lineK } = computeRacingLine(x, y, nx, ny, n, realDs, halfWidth);
+  const { lineOff, lineK } = computeRacingLine(x, y, nx, ny, n, realDs, halfWidth, k);
 
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (let i = 0; i < n; i++) {
@@ -301,15 +301,23 @@ function smooth(arr: Float32Array, radius: number, passes = 2): Float32Array {
 
 // Ideallinie über ein "elastisches Band": Punkte werden zur Mitte ihrer Nachbarn
 // gezogen (minimiert Krümmung) und dabei auf die Streckenbreite begrenzt.
-function computeRacingLine(x: Float32Array, y: Float32Array, nx: Float32Array, ny: Float32Array, n: number, ds: number, halfWidth: number) {
+/** Abstimmung der Ideallinie: auf Geraden zieht eine Feder zur Streckenmitte, in Kurven zählt nur die Krümmung */
+export const LINE_TUNE = { spring: 0.05, straight: 300 };
+
+function computeRacingLine(x: Float32Array, y: Float32Array, nx: Float32Array, ny: Float32Array, n: number, ds: number, halfWidth: number, kc: Float32Array) {
   const step = Math.max(1, Math.round(6 / ds));
   const m = Math.floor(n / step);
   const off = new Float32Array(m);
   const limit = halfWidth - 1.6;
   const cx = new Float32Array(m), cy = new Float32Array(m), cnx = new Float32Array(m), cny = new Float32Array(m);
+  const wStraight = new Float32Array(m);
   for (let i = 0; i < m; i++) {
     const s = i * step;
     cx[i] = x[s]; cy[i] = y[s]; cnx[i] = nx[s]; cny[i] = ny[s];
+    // Gerade: 1, enge Kurve: 0 (Krümmung der Mittellinie, leicht geglättet über die Nachbarn)
+    let kmax = 0;
+    for (let d = -6; d <= 6; d += 3) kmax = Math.max(kmax, Math.abs(kc[wrapIndex(s + d * step, n)]));
+    wStraight[i] = Math.max(0, Math.min(1, 1 - kmax * LINE_TUNE.straight));
   }
   for (let it = 0; it < 900; it++) {
     for (let i = 0; i < m; i++) {
@@ -323,7 +331,7 @@ function computeRacingLine(x: Float32Array, y: Float32Array, nx: Float32Array, n
       const by = cy[b] + cny[b] * off[b];
       const mx = (ax + bx) / 2 - px;
       const my = (ay + by) / 2 - py;
-      let o = off[i] + (mx * cnx[i] + my * cny[i]) * 0.6;
+      let o = off[i] + (mx * cnx[i] + my * cny[i]) * 0.6 - wStraight[i] * off[i] * LINE_TUNE.spring;
       if (o > limit) o = limit;
       if (o < -limit) o = -limit;
       off[i] = o;

@@ -3,23 +3,52 @@ import type { GameState } from '../types';
 import { DEFAULT_SETTINGS, SAVE_VERSION, emptyStats } from './state';
 import { MISSIONS, PLOTS } from './tycoon';
 import { TIPS } from '../data/tips';
+import { cloud } from './cloud';
 
 const KEY = 'apex-rennstall-save';
+const BACKUP_KEY = 'apex-rennstall-save-backup';
+const DELETED_KEY = 'apex-rennstall-save-deleted';
 const SETTINGS_KEY = 'apex-rennstall-settings';
+let lastBackup = 0;
 
-export function loadGame(): GameState | null {
+/** Spielstand als Text mit Zeitstempel (für Browser, Datei und Artifact-Speicher) */
+export function serialize(s: GameState, savedAt = Date.now()): string {
+  return JSON.stringify({ ...s, savedAt });
+}
+
+export function parseSave(json: string): GameState | null {
   try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return null;
-    return migrate(JSON.parse(raw));
+    return migrate(JSON.parse(json));
   } catch {
     return null;
   }
 }
 
+export function loadGame(): GameState | null {
+  // Erst der aktuelle Stand, bei Beschädigung die Sicherheitskopie
+  for (const key of [KEY, BACKUP_KEY]) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const g = migrate(JSON.parse(raw));
+      if (g) return g;
+    } catch {
+      /* nächste Kopie versuchen */
+    }
+  }
+  return null;
+}
+
 export function saveGame(s: GameState): boolean {
   try {
-    localStorage.setItem(KEY, JSON.stringify(s));
+    const now = Date.now();
+    // Sicherheitskopie des vorherigen Stands, höchstens einmal pro Minute
+    if (now - lastBackup > 60_000) {
+      const prev = localStorage.getItem(KEY);
+      if (prev) localStorage.setItem(BACKUP_KEY, prev);
+      lastBackup = now;
+    }
+    localStorage.setItem(KEY, serialize(s, now));
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(s.settings));
     return true;
   } catch {
@@ -27,10 +56,64 @@ export function saveGame(s: GameState): boolean {
   }
 }
 
+/** Bewusstes Löschen: Der Stand wandert in einen Papierkorb-Platz, damit man ihn wiederherstellen kann */
 export function clearGame() {
   try {
+    const raw = localStorage.getItem(KEY);
+    if (raw) localStorage.setItem(DELETED_KEY, raw);
     localStorage.removeItem(KEY);
-  } catch {}
+    localStorage.removeItem(BACKUP_KEY);
+  } catch {
+    /* nichts zu tun */
+  }
+  void cloud.clear();
+}
+
+export function deletedGame(): GameState | null {
+  try {
+    const raw = localStorage.getItem(DELETED_KEY);
+    return raw ? migrate(JSON.parse(raw)) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function forgetDeletedGame() {
+  try {
+    localStorage.removeItem(DELETED_KEY);
+  } catch {
+    /* nichts zu tun */
+  }
+}
+
+/** Spielstand als Datei anbieten: im Artifact über den Speichern-Dialog von claude.ai, sonst als normaler Download */
+export async function downloadSave(s: GameState): Promise<'saved' | 'declined' | 'error'> {
+  const json = serialize(s);
+  const slug = (s.team.short || 'team').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const filename = `apex-rennstall-${slug || 'team'}-saison${s.season}.json`;
+  try {
+    const c = (window as unknown as { claude?: { use?: (n: string) => Promise<any> } }).claude;
+    const dl = c && typeof c.use === 'function' ? await c.use('downloads') : null;
+    if (dl) {
+      await dl.save({ filename, data: json });
+      return 'saved';
+    }
+  } catch (e) {
+    if ((e as { code?: string })?.code === 'declined') return 'declined';
+  }
+  try {
+    const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 8000);
+    return 'saved';
+  } catch {
+    return 'error';
+  }
 }
 
 export function loadSettings() {
@@ -52,6 +135,7 @@ export function loadSettings() {
 
 export function migrate(s: any): GameState | null {
   if (!s || typeof s !== 'object' || !s.team || !s.car) return null;
+  s.created = s.created ?? true;
   s.settings = { ...DEFAULT_SETTINGS, ...(s.settings ?? {}) };
   s.stats = { ...emptyStats(), ...(s.stats ?? {}) };
   s.flags = s.flags ?? {};
