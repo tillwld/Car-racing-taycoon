@@ -16,6 +16,16 @@ Der Spielstand wird automatisch im `localStorage` des Browsers gespeichert (mit 
 
 Das Team gilt ab der Gründung als fertig: Wenn Sponsorverträge auslaufen oder ein Fahrer geht, bleibt der Spielstand bestehen und die Stellen lassen sich neu besetzen.
 
+## Online spielen (GitHub Pages)
+
+Das Spiel besteht aus statischen Dateien und lässt sich auf GitHub Pages veröffentlichen. Der Workflow `.github/workflows/pages.yml` baut es bei jedem Push und stellt es bereit.
+
+1. Im Repository **Settings → Pages → Build and deployment → Source** auf **GitHub Actions** stellen (einmalig).
+2. Unter **Actions → Website veröffentlichen → Run workflow** starten oder einfach pushen.
+3. Danach läuft das Spiel unter `https://<benutzername>.github.io/<repository>/`, hier: `https://tillwld.github.io/Car-racing-website/`.
+
+Hinweise: Auf GitHub Pages liegt der Spielstand nur im Browser des jeweiligen Geräts (Sicherung als Datei unter *Einstellungen*). Kostenlose Konten brauchen dafür ein öffentliches Repository. Alternativ den Ordner `dist` (nach `npm run build`) auf app.netlify.com/drop ziehen.
+
 ## Spielprinzip
 
 1. **Team gründen** in einem Schritt: Name und Farbe, fertig. Auto, zwei Fahrer und ein Sponsor sind schon dabei.
