@@ -57,6 +57,8 @@ interface Hud {
   tower: { id: string; pos: number; short: string; color: string; gap: string; me: boolean; pit: boolean; out: boolean }[];
   msgs: { text: string; kind: string; t: number }[];
   lights: number;
+  start: { text: string; tone: 'good' | 'warn' | 'bad' } | null;
+  early: boolean;
   phase: string;
   pitReq: PitRequest | null;
   inPit: boolean;
@@ -588,6 +590,12 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
                 ))}
               </div>
             )}
+            {h.phase === 'countdown' && isRace && canDrive && !autopilot && !spectate && (
+              <div className={`start-hint ${h.early ? 'bad' : ''}`}>
+                {h.early ? 'Noch nicht! Gas erst, wenn die Lichter ausgehen' : 'Gas geben, sobald die Lichter ausgehen'}
+              </div>
+            )}
+            {h.start && <div className={`center-msg start-msg ${h.start.tone}`}>{h.start.text}</div>}
             {h.wrongWay && canDrive && !autopilot ? (
               <div className="center-msg" style={{ fontSize: 26, top: '22%', color: 'var(--bad)' }}>Falsche Richtung · R = zurücksetzen</div>
             ) : (
@@ -899,6 +907,20 @@ function pitHud(eng: RaceEngine, c: CarSim): PitHud | null {
   return null;
 }
 
+/** Rückmeldung zum Start: Reaktionszeit nach „Lichter aus“ oder Fehlstart */
+function startBanner(eng: RaceEngine, focus: CarSim): Hud['start'] {
+  if (eng.cfg.mode !== 'race' || focus !== eng.human || eng.autopilotHuman || eng.phase !== 'racing') return null;
+  if (eng.startJump) return eng.time < 3.4 ? { text: 'Fehlstart! Zu früh aufs Gas', tone: 'bad' } : null;
+  const r = eng.humanReaction;
+  if (r === null) return eng.time > 0.6 && eng.time < 6 ? { text: 'Gas geben!', tone: 'warn' } : null;
+  if (eng.time - r > 2.6) return null;
+  const t = `${r.toFixed(2).replace('.', ',')} s`;
+  if (r < 0.25) return { text: `Perfekter Start · ${t}`, tone: 'good' };
+  if (r < 0.4) return { text: `Guter Start · ${t}`, tone: 'good' };
+  if (r < 0.7) return { text: `Später Start · ${t}`, tone: 'warn' };
+  return { text: `Verschlafen · ${t}`, tone: 'bad' };
+}
+
 function makeHud(eng: RaceEngine, focus: CarSim, hints: boolean): Hud {
   const L = eng.geo.length;
   const order = eng.order();
@@ -946,6 +968,8 @@ function makeHud(eng: RaceEngine, focus: CarSim, hints: boolean): Hud {
     tower,
     msgs: msgs.map((m) => ({ text: m.text, kind: m.kind, t: m.t })),
     lights: Math.min(5, Math.floor(eng.time / 0.8)),
+    start: startBanner(eng, focus),
+    early: eng.phase === 'countdown' && focus === eng.human && !eng.autopilotHuman && eng.humanInput.throttle > 0.3,
     phase: eng.phase,
     pitReq: focus.pitReq,
     inPit: focus.pit !== 'none',

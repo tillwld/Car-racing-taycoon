@@ -36,6 +36,7 @@ const ICONS: Record<string, string> = {
   list: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
   medal: 'M12 15a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM8.5 14 7 22l5-3 5 3-1.5-8',
   trash: 'M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14',
+  chat: 'M4 5h16v11H10l-5 4v-4H4zM8 9h8M8 12h5',
   info: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01',
   bolt: 'M13 2 3 14h9l-1 8 10-12h-9z',
   flag: 'M4 22V4M4 4h14l-2 4 2 4H4',

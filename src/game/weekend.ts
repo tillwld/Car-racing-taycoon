@@ -11,6 +11,7 @@ import { book, bookCapture, news, playerDrivers, refreshMarkets, tickDevelopment
 import { driverSalary, makeAITeams, makeDriver, goalText } from './generators';
 import { clamp, gauss, pick, rand } from './util';
 import { maybeGenerateEvents } from './events';
+import { managerSay, warnContracts } from './manager';
 
 const geoCache = new Map<string, TrackGeometry>();
 export function trackGeometry(t: TrackDef): TrackGeometry {
@@ -537,6 +538,7 @@ function applyRaceResultInner(s: GameState, out: RaceOutcome): RaceResult {
     } else if (sp.races <= 0) {
       s.sponsors = s.sponsors.filter((x) => x.id !== sp.id);
       news(s, `Vertrag mit ${sp.name} ist ausgelaufen.`, 'neutral');
+      managerSay(s, `Der Vertrag mit ${sp.name} ist ausgelaufen. Neue Angebote findest du in der Sponsoren-Lounge.`, { actions: [{ screen: 'sponsors', label: 'Zu den Sponsoren' }] });
     }
   }
   // Herausforderung aus Ereignis
@@ -602,14 +604,15 @@ function applyRaceResultInner(s: GameState, out: RaceOutcome): RaceResult {
   }
 
   // Verträge
+  warnContracts(s);
   for (const d of playerDrivers(s)) {
-    if (d.contract === 2) news(s, `Der Vertrag von ${d.name} läuft in 2 Rennen aus.`, 'bad');
     if (d.contract <= 0) {
       s.team.driverIds = s.team.driverIds.filter((x) => x !== d.id);
       d.teamId = null;
       d.salary = driverSalary(d, s.tier);
       s.driverMarket.push(d.id);
       news(s, `${d.name} hat das Team nach Vertragsende verlassen!`, 'bad');
+      managerSay(s, `${d.name} hat das Team nach Vertragsende verlassen. Auf dem Transfermarkt in der Fahrerlounge findest du Ersatz.`, { actions: [{ screen: 'drivers', label: 'Zur Fahrerlounge' }] });
     }
   }
 

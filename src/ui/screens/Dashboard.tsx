@@ -44,8 +44,9 @@ export default function Dashboard({ go }: { go: (s: Screen) => void }) {
   if (f.drivers && g.team.driverIds.length < 2) alerts.push({ text: 'Ein Cockpit ist frei – verpflichte einen zweiten Fahrer.', to: 'drivers', tone: 'bad' });
   for (const id of f.drivers ? g.team.driverIds : []) {
     const d = g.drivers[id];
-    if (d && d.contract <= 2) alerts.push({ text: `Vertrag von ${d.name} läuft in ${d.contract} Rennen aus.`, to: 'drivers', tone: 'warn' });
+    if (d && d.contract <= 3) alerts.push({ text: `Vertrag von ${d.name} ${d.contract <= 1 ? 'läuft nach dem nächsten Rennen aus' : `läuft in ${d.contract} Rennen aus`}.`, to: 'drivers', tone: d.contract <= 1 ? 'bad' : 'warn' });
   }
+  for (const sp of f.sponsors ? g.sponsors : []) if (sp.races <= 3) alerts.push({ text: `Sponsorenvertrag mit ${sp.name} ${sp.races <= 1 ? 'läuft nach dem nächsten Rennen aus' : `läuft in ${sp.races} Rennen aus`}.`, to: 'sponsors', tone: sp.races <= 1 ? 'bad' : 'warn' });
   for (const [k, v] of f.garage ? Object.entries(g.car.condition) : []) if (v < 0.7) alerts.push({ text: `${CONDITION_LABELS[k as keyof typeof CONDITION_LABELS]} nur noch bei ${Math.round(v * 100)} % – Reparatur empfohlen.`, to: 'garage', tone: v < 0.45 ? 'bad' : 'warn' });
   if (f.sponsors && !g.sponsors.some((s) => s.slot === 'main')) alerts.push({ text: 'Kein Hauptsponsor – dir entgehen Einnahmen.', to: 'sponsors', tone: 'bad' });
   if (f.staff && !g.staff.mechanic) alerts.push({ text: 'Ohne Mechaniker dauern Boxenstopps sehr lange.', to: 'staff', tone: 'warn' });

@@ -1,6 +1,6 @@
 // Zufallsereignisse zwischen den Rennen. Jede Entscheidung hat Konsequenzen.
 import { PARTS, PART_KEYS, STAFF_ROLES, TIERS } from '../data/catalog';
-import type { GameEvent, GameState, PartKey, StaffRole } from '../types';
+import type { GameEvent, GameState, PartKey, Sponsor, StaffRole } from '../types';
 import { genId, makeSponsor } from './generators';
 import { academyCost, book, discoverTalent, news, playerDrivers, signAcademy } from './state';
 import { chance, clamp, pick, rand } from './util';
@@ -10,6 +10,22 @@ type Gen = (s: GameState) => GameEvent | null;
 
 const m = (s: GameState, v: number) => Math.round((v * TIERS[s.tier].money) / 1000) * 1000;
 const eur = (v: number) => `${v.toLocaleString('de-DE')} €`;
+
+/** Verlängerungsangebot eines zufriedenen Sponsors (auch von der Managerin vor Vertragsende ausgelöst) */
+export function extendEvent(s: GameState, sp: Sponsor): GameEvent {
+  void s;
+  return {
+    id: genId('ev'),
+    kind: 'extend',
+    title: `${sp.name} möchte verlängern`,
+    text: `${sp.name} ist zufrieden und bietet eine Verlängerung um 7 Rennen zu 10 % besseren Konditionen an.`,
+    choices: [
+      { label: 'Verlängern', detail: `${eur(Math.round(sp.perRace * 1.1))} pro Rennen`, effect: 'accept' },
+      { label: 'Auslaufen lassen', detail: 'Platz für neue Sponsoren', effect: 'decline' },
+    ],
+    data: { sponsorId: sp.id },
+  };
+}
 
 const GENERATORS: Gen[] = [
   (s) => {
@@ -164,18 +180,7 @@ const GENERATORS: Gen[] = [
   },
   (s) => {
     const sp = s.sponsors.find((x) => x.races <= 2 && x.satisfaction >= 55);
-    if (!sp) return null;
-    return {
-      id: genId('ev'),
-      kind: 'extend',
-      title: `${sp.name} möchte verlängern`,
-      text: `${sp.name} ist zufrieden und bietet eine Verlängerung um 7 Rennen zu 10 % besseren Konditionen an.`,
-      choices: [
-        { label: 'Verlängern', detail: `${eur(Math.round(sp.perRace * 1.1))} pro Rennen`, effect: 'accept' },
-        { label: 'Auslaufen lassen', detail: 'Platz für neue Sponsoren', effect: 'decline' },
-      ],
-      data: { sponsorId: sp.id },
-    };
+    return sp ? extendEvent(s, sp) : null;
   },
 ];
 

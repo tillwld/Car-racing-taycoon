@@ -267,6 +267,7 @@ export default function RaceHub({ go, onRacing, focus }: { go: (s: Screen) => vo
             <ul className="tip-list">
               <li>Das Startfeld wird automatisch ermittelt, das Qualifying schaltest du nach dem zweiten Rennen frei.</li>
               <li>Gas <kbd>W</kbd>, Bremse <kbd>S</kbd>, Lenken <kbd>A</kbd> <kbd>D</kbd>, Boost <kbd>Leertaste</kbd>. Am Handy erscheinen Tasten auf dem Bildschirm.</li>
+              <li>Beim Start gehen fünf Lichter an. Gib erst Gas, wenn sie ausgehen. Zu früh ist ein Fehlstart.</li>
               <li>Je weiter vorn du ins Ziel kommst, desto mehr Preisgeld bekommst du. Das Geld brauchst du für neue Gebäude.</li>
             </ul>
           </div>

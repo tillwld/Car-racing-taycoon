@@ -136,6 +136,9 @@ export interface CarSim {
   lapTimes: number[];
 }
 
+/** Fehlstart: so lange (Sekunden) bleibt das Auto nach „Lichter aus“ stehen */
+export const START_JUMP_HOLD = 1.6;
+
 /** Abstimmung des Fahrgefühls (Spielerauto) */
 export const PHYS = { rise: 5.0, riseSpd: 0.3, ret: 1.9, exp: 1.0, kd: 1.0, kdOff: 1.12, lag: 0.05, osP: 0.22, osB: 0.16, kStab: 2.0, kStabOff: 0.8, stabSteer: 0.6, accelCirc: 0.3 };
 
@@ -172,6 +175,10 @@ export class RaceEngine {
   humanInput: Input = { throttle: 0, brake: 0, steer: 0, boost: false };
   humanId: string | null = null;
   autopilotHuman = false;
+  /** Reaktionsstart des Spielers: Fehlstart (zu früh aufs Gas), Haltezeit als Strafe, Reaktionszeit nach „Lichter aus“ */
+  startJump = false;
+  startHoldUntil = 0;
+  humanReaction: number | null = null;
   sparks: { x: number; y: number; vx: number; vy: number; life: number }[] = [];
   skids: { x: number; y: number; h: number; life: number }[] = [];
   collisionsThisFrame = 0;
@@ -208,7 +215,7 @@ export class RaceEngine {
       this.cars.forEach((c) => (c.started = true));
     } else {
       this.countdown = 0;
-      this.lightsOut = 4.2 + Math.random() * 1.0;
+      this.lightsOut = 4.3 + Math.random() * 1.7;
     }
   }
 
@@ -435,6 +442,13 @@ export class RaceEngine {
         this.time = 0;
         this.onEvent?.({ type: 'lightsOut' });
         this.msg('Lichter aus – los geht’s!', 'good');
+        const h = this.human;
+        if (h && !this.autopilotHuman && this.humanInput.throttle > 0.3) {
+          // Zu früh aufs Gas: Fehlstart, das Auto steht noch kurz still
+          this.startJump = true;
+          this.startHoldUntil = START_JUMP_HOLD;
+          this.msg('Fehlstart! Du warst zu früh auf dem Gas.', 'bad', h.cfg.id);
+        }
       }
       return;
     }
@@ -444,6 +458,9 @@ export class RaceEngine {
       return;
     }
     this.time += dt;
+    if (this.humanReaction === null && !this.startJump && this.time < 10 && this.cfg.mode === 'race' && this.humanId && !this.autopilotHuman && this.humanInput.throttle > 0.3) {
+      this.humanReaction = this.time;
+    }
     this.updateWeather(dt);
     this.exitOverride = Math.max(0, this.exitOverride - dt);
     this.updateExitLight();
@@ -506,6 +523,12 @@ export class RaceEngine {
     if (!c.started) {
       if (this.time >= (c.cfg.human && !this.autopilotHuman ? 0 : c.ai.startDelay)) c.started = true;
       else inp = { throttle: 0, brake: 1, steer: 0, boost: false };
+    }
+    if (isHuman && this.time < this.startHoldUntil) {
+      // Fehlstart: das Auto steht still (Bremse würde rückwärts rollen lassen)
+      inp = { throttle: 0, brake: 0, steer: 0, boost: false };
+      c.vx = 0;
+      c.vy = 0;
     }
     if (c.fuel <= 0) inp = { ...inp, throttle: 0, boost: false };
 

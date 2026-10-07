@@ -52,6 +52,7 @@ export const TIPS: Record<string, Tip> = {
     points: [
       'Das Startfeld wird automatisch ermittelt. Das Qualifying schaltest du nach dem zweiten Rennen frei.',
       'Gas, Bremse und Lenken wie auf der Teststrecke. Die Leertaste ist der Boost.',
+      'Beim Start gehen fünf Lichter an. Gib erst Gas, wenn sie ausgehen: Zu früh ist ein Fehlstart und du bleibst kurz stehen.',
       'Am Ende bekommst du Preisgeld nach Platzierung. Davon gehen Gehälter und Reisekosten ab.',
       'Du kannst jederzeit mit Esc pausieren und das Rennen simulieren lassen.',
     ],

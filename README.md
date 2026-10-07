@@ -63,13 +63,15 @@ Jede Station beginnt mit einer Erklärung „Das kannst du hier tun“ (ausblend
 | A D / ← → | Lenken |
 | Leertaste | Boost (begrenzte Energie, lädt beim Bremsen auf) |
 | P / B | Boxenstopp anfordern oder absagen (immer verfügbar) |
-| 1 – 5 · F · E | im Boxenmenü: Reifenmischung · Nachtanken · Reparatur (ab Reifenlager) |
+| 1 – 5 · F · E | im Boxenmenü: Reifenmischung · Nachtanken · Reparatur |
 | R | Auto auf die Strecke zurücksetzen |
 | C | Kamera wechseln: Verfolger · Weit · Cockpit |
 | L · T | Ideallinie · Zeitenliste |
 | Esc | Pause |
 
 Auf Touch-Geräten erscheinen virtuelle Tasten.
+
+**Rennstart:** Fünf Lichter gehen nacheinander an und nach einer zufälligen Pause alle zugleich aus. Erst dann gibst du Gas: Deine Reaktionszeit wird eingeblendet (unter 0,25 s perfekt, bis 0,4 s gut, bis 0,7 s spät, darüber verschlafen). Wer beim Ausgehen der Lichter schon auf dem Gas steht, begeht einen **Fehlstart** und bleibt gut anderthalb Sekunden stehen. Beim Zuschauen und Simulieren übernimmt das Team den Start, die Gegner starten mit leicht verschiedenen Reaktionen.
 
 **Boxengasse:** Mit P meldest du dich an die Box. Eine Anzeige oben zählt die Meter bis zur Einfahrt herunter und sagt, auf welcher Seite die Boxengasse liegt. Sie zweigt kurz vor Start und Ziel von der Strecke ab, hat eine Boxenmauer, eine Fahrspur mit Tempo 90 und eine Arbeitsspur vor den Garagen. Das Auto fährt dort geführt: Ein Mechanikerteam wechselt die Reifen, danach gibt die Ausfahrtsampel die Strecke frei. Du kannst auch ohne P einfach auf die breite Zufahrt abbiegen: Dann meldet dich das Team automatisch an und schlägt Reifen vor. In der Gasse sagt P den Stopp noch ab (dann fährst du nur durch). Verpasst du die Einfahrt, gilt der Wunsch für die nächste Runde; in der letzten Runde wird kein Stopp mehr gemacht. Auf der Teststrecke lässt sich die Gasse nur durchfahren. Die KI macht ihre Stopps nach demselben Prinzip.
 
@@ -78,6 +80,13 @@ Auf Touch-Geräten erscheinen virtuelle Tasten.
 **Tastenbelegung:** Alle Tasten lassen sich unter *Einstellungen → Fahren → Tastenbelegung* ändern (pro Aktion zwei Tasten, Konflikte werden gemeldet, „Standardtasten wiederherstellen“ setzt alles zurück). Die Richtungstasten gelten auch zum Laufen auf dem Gelände. Fest sind nur Esc (Pause) und 1 bis 5 im Boxenmenü.
 
 **Gegner:** Jeder KI-Fahrer hat pro Rennen eine Tagesform (Team und Fahrer), pro Runde eine Stimmung (Glanzrunde oder unsaubere Runde), fährt je Runde eine leicht andere Spur und pendelt auf Geraden neben der Ideallinie. Dazu kommen Fehler: Verbremser, Ausrutscher ins Gras und unsichere Phasen. Die Ideallinie läuft auf Geraden mittig und geht erst vor Kurven nach außen (außen – innen – außen).
+
+## Die Managerin
+
+Über die Sprechblase oben rechts erreichst du **Katrin Vogel**, deine Managerin. Sie hat zwei Aufgaben:
+
+- **Vertragswarnungen:** Läuft ein Vertrag von Fahrern oder Sponsoren nur noch 3 Rennen und noch einmal 1 Rennen, schickt sie nach dem Rennen eine Nachricht. Sie erscheint als Hinweisfenster mit Knöpfen zur Fahrerlounge bzw. Sponsoren-Lounge, bleibt danach im Postfach stehen und färbt den Hinweispunkt an der Station. Zufriedene Sponsoren machen dabei gleich ein Verlängerungsangebot. Auch wenn ein Vertrag endet, meldet sie sich.
+- **Fragen zum Spiel:** Du schreibst ihr frei oder wählst eine Beispielfrage (Bauen, Freischaltung, Steuerung, Rennstart, Boxenstopp, Reifen, Reparatur, Verträge, Sponsoren, Meisterschaft, Speichern und mehr). Die Antworten kommen aus einer eingebauten Wissensbasis, ohne Online-Dienst, und passen sich dem Spielstand an (nächster Schritt, deine Tasten, deine Verträge).
 
 ## Wie die Systeme zusammenhängen
 
@@ -107,6 +116,7 @@ src/
     input.ts               Tastatur- und Touch-Eingaben
   game/
     tycoon.ts              Felder, passives Einkommen, Freischaltungen, Aufträge, Teststrecken-Prämien
+    manager.ts             Managerin: Postfach, Vertragswarnungen, Wissensbasis für Fragen
     start.ts               Schnellstart (Auto, Fahrer, Sponsor)
     state.ts               Spielstand anlegen, Wirtschaft, Fahrer/Personal/Sponsoren, Entwicklung
     carModel.ts            Fahrzeugwerte, Kosten, Boxenstoppzeiten

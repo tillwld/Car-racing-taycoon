@@ -14,6 +14,7 @@ import Calendar from './ui/screens/Calendar';
 import Finance from './ui/screens/Finance';
 import StatsScreen from './ui/screens/Stats';
 import SettingsScreen from './ui/screens/Settings';
+import ManagerChat from './ui/screens/ManagerChat';
 import type { RaceViewResult } from './ui/race/RaceView';
 
 // Die 3D-Rennansicht (three.js) wird erst beim ersten Rennen geladen
@@ -26,6 +27,7 @@ const RaceLoading = () => (
 import { setupComplete } from './game/state';
 import { clearGame, deletedGame, forgetDeletedGame } from './game/save';
 import { resolveEvent } from './game/events';
+import { MANAGER, ackManager, ensureManager, managerBox } from './game/manager';
 import { makeFreeDriveConfig, startNextSeason } from './game/weekend';
 import { TIERS } from './data/catalog';
 import { GENERAL_TIPS, TIPS } from './data/tips';
@@ -38,7 +40,7 @@ import { aufbauPath, nextPlot, buyPlot, activeMissions, currentTip, dismissTip, 
 import { money } from './game/util';
 import { sound } from './audio/sound';
 
-export type Screen = 'dashboard' | 'race' | 'garage' | 'research' | 'drivers' | 'staff' | 'sponsors' | 'championship' | 'calendar' | 'finance' | 'stats' | 'settings';
+export type Screen = 'dashboard' | 'race' | 'garage' | 'research' | 'drivers' | 'staff' | 'sponsors' | 'championship' | 'calendar' | 'finance' | 'stats' | 'settings' | 'manager';
 export type RaceFocus = 'setup' | 'tyres' | 'tactics';
 
 export default function App() {
@@ -133,7 +135,7 @@ const STATION_TABS: Record<StationId, Screen[]> = {
   pitwall: ['race'],
 };
 const STATION_FOCUS: Partial<Record<StationId, RaceFocus>> = { setup: 'setup', tyres: 'tyres', pitwall: 'tactics' };
-const SCREEN_STATION: Record<Screen, StationId | 'settings'> = {
+const SCREEN_STATION: Record<Screen, StationId | 'settings' | 'manager'> = {
   dashboard: 'office',
   finance: 'office',
   race: 'truck',
@@ -146,6 +148,7 @@ const SCREEN_STATION: Record<Screen, StationId | 'settings'> = {
   stats: 'trophy',
   calendar: 'calendar',
   settings: 'settings',
+  manager: 'manager',
 };
 const TAB_LABEL: Record<Screen, string> = {
   dashboard: 'Übersicht',
@@ -160,6 +163,7 @@ const TAB_LABEL: Record<Screen, string> = {
   finance: 'Finanzen',
   stats: 'Statistiken & Erfolge',
   settings: 'Einstellungen',
+  manager: 'Managerin',
 };
 const SCREEN_NEEDS: Partial<Record<Screen, { feature: keyof ReturnType<typeof features>; where: string }>> = {
   garage: { feature: 'garage', where: 'Baue die Werkstatt.' },
@@ -205,9 +209,12 @@ function stationAlerts(g: GameState): Partial<Record<StationId, string>> {
   if (f.research && res < slots.research && g.money > 150000) a.lab = 'Labor ist frei';
   if (f.drivers) {
     if (g.team.driverIds.length < 2) a.lounge = 'Ein Cockpit ist frei';
-    else if (g.team.driverIds.some((id) => (g.drivers[id]?.contract ?? 9) <= 2)) a.lounge = 'Vertrag läuft aus';
+    else if (g.team.driverIds.some((id) => (g.drivers[id]?.contract ?? 9) <= 3)) a.lounge = 'Vertrag läuft aus';
   }
-  if (f.sponsors && !g.sponsors.some((s) => s.slot === 'main')) a.sponsors = 'Kein Hauptsponsor';
+  if (f.sponsors) {
+    if (!g.sponsors.some((s) => s.slot === 'main')) a.sponsors = 'Kein Hauptsponsor';
+    else if (g.sponsors.some((s) => s.races <= 3)) a.sponsors = 'Vertrag läuft aus';
+  }
   if (f.staff && (!g.staff.mechanic || !g.staff.raceEngineer)) a.staff = 'Wichtige Stelle unbesetzt';
   if (g.money < 0) a.office = 'Konto im Minus';
   if (g.round < g.calendar.length && !g.seasonEnd) {
@@ -304,7 +311,7 @@ type FreeSession = { config: ReturnType<typeof makeFreeDriveConfig>['config']; t
 function Shell({ onQuit }: { onQuit: () => void }) {
   const { game, update, saveOk, saveInfo, toast, get, setIncomePaused } = useGame();
   const g = game as GameState;
-  const [panel, setPanel] = useState<{ key: StationId | 'settings'; tab: Screen; focus?: RaceFocus } | null>(null);
+  const [panel, setPanel] = useState<{ key: StationId | 'settings' | 'manager'; tab: Screen; focus?: RaceFocus } | null>(null);
   const [racing, setRacing] = useState(false);
   const [quick, setQuick] = useState(false);
   const [help, setHelp] = useState(false);
@@ -314,6 +321,14 @@ function Shell({ onQuit }: { onQuit: () => void }) {
   const [free, setFree] = useState<FreeSession | null>(null);
   const [freeResult, setFreeResult] = useState<{ track: string; best: number; lines: { label: string; amount: number }[] } | null>(null);
   const feats = features(g);
+  const box = managerBox(g);
+
+  // Die Managerin stellt sich beim ersten Besuch vor
+  useEffect(() => {
+    if (!managerBox(get() as GameState).messages.length) update((st) => ensureManager(st));
+  }, []);
+  // Neue Nachricht der Managerin: kurzer Hinweis, außer das Postfach ist gerade offen
+  const lastMsgId = useRef<string | null>(box.messages.length ? box.messages[box.messages.length - 1].id : null);
 
   const open = useCallback((st: StationId) => {
     sound.click();
@@ -380,15 +395,25 @@ function Shell({ onQuit }: { onQuit: () => void }) {
   const offline = g.flags.offline as { amount: number; seconds: number } | undefined;
   const missions = activeMissions(g, 3);
   const objective = missions[0] ? SPOT_FOR[missions[0].target] : null;
+  const urgent = box.messages.find((m) => m.urgent && !m.ack) ?? null;
   const showTip = !!tipId && !racing && !panel && !free && !freeResult && !ev && !g.seasonEnd && !offline;
-  const blocking = !!panel || (!!ev && !racing) || !!g.seasonEnd || quick || help || !!free || !!freeResult || showTip || !!offline || !!reopenTip;
+  const showUrgent = !!urgent && !showTip && !racing && !panel && !free && !freeResult && !g.seasonEnd && !offline && !reopenTip && !help;
+  const blocking = !!panel || (!!ev && !racing) || !!g.seasonEnd || quick || help || !!free || !!freeResult || showTip || !!offline || !!reopenTip || showUrgent;
+  const lastMsg = box.messages[box.messages.length - 1];
+  useEffect(() => {
+    if (!lastMsg || lastMsg.id === lastMsgId.current) return;
+    lastMsgId.current = lastMsg.id;
+    if (lastMsg.from !== 'manager' || panel?.key === 'manager') return;
+    if (box.messages.length === 1) toast(`Neu: Deine Managerin ${MANAGER.name}. Über die Sprechblase oben kannst du ihr schreiben.`, 'good');
+    else toast(`Nachricht von ${MANAGER.first}: ${lastMsg.text.split('\n')[0].slice(0, 90)}`, 'good');
+  }, [lastMsg?.id]);
   // Während einer Fahrt läuft das Einkommen im Hintergrund weiter, ohne jede Sekunde die Oberfläche neu zu zeichnen
   useEffect(() => {
     setIncomePaused(!!free || racing);
     return () => setIncomePaused(false);
   }, [free, racing, setIncomePaused]);
-  const tabs = panel ? (panel.key === 'settings' ? (['settings'] as Screen[]) : STATION_TABS[panel.key].filter((t) => t !== 'finance' || feats.finance)) : [];
-  const panelTitle = panel ? (panel.key === 'settings' ? 'Einstellungen' : STATION_LABELS[panel.key]) : '';
+  const tabs = panel ? (panel.key === 'settings' ? (['settings'] as Screen[]) : panel.key === 'manager' ? (['manager'] as Screen[]) : STATION_TABS[panel.key].filter((t) => t !== 'finance' || feats.finance)) : [];
+  const panelTitle = panel ? (panel.key === 'settings' ? 'Einstellungen' : panel.key === 'manager' ? `Managerin ${MANAGER.name}` : STATION_LABELS[panel.key]) : '';
   const nextTrack = g.calendar[g.round] ? TRACK_BY_ID[g.calendar[g.round]] : null;
   const rate = incomePerSec(g);
 
@@ -422,6 +447,10 @@ function Shell({ onQuit }: { onQuit: () => void }) {
         <div className="hub-actions">
           <button type="button" className="hud-btn" aria-label="Hilfe und Erklärungen" onClick={() => setHelp(true)}>
             <Icon name="info" />
+          </button>
+          <button type="button" className="hud-btn" aria-label={box.unread ? `Managerin, ${box.unread} neue Nachrichten` : 'Managerin'} onClick={() => setPanel({ key: 'manager', tab: 'manager' })}>
+            <Icon name="chat" />
+            {box.unread > 0 && <span className="hud-badge">{box.unread}</span>}
           </button>
           <button type="button" className="hud-btn" aria-label={g.settings.muted ? 'Ton an' : 'Ton aus'} onClick={() => update((s) => { s.settings.muted = !s.settings.muted; })}>
             <Icon name={g.settings.muted ? 'mute' : 'sound'} />
@@ -486,6 +515,11 @@ function Shell({ onQuit }: { onQuit: () => void }) {
             <b className="display" style={{ fontSize: 18 }}>Schnellzugriff</b>
             <button type="button" className="hud-btn" style={{ width: 32, height: 32 }} aria-label="Schließen" onClick={() => setQuick(false)}><Icon name="close" /></button>
           </div>
+          <button type="button" className="hub-quick-item" onClick={() => { setQuick(false); setPanel({ key: 'manager', tab: 'manager' }); }}>
+            <Icon name="chat" />
+            <span>Managerin {MANAGER.first}</span>
+            {box.unread > 0 && <span className="dot" />}
+          </button>
           <button type="button" className="hub-quick-item" onClick={() => { setQuick(false); startFree(); }}>
             <Icon name="race" />
             <span>Teststrecke (freie Fahrt)</span>
@@ -536,13 +570,14 @@ function Shell({ onQuit }: { onQuit: () => void }) {
                 {panel.tab === 'finance' && <Finance />}
                 {panel.tab === 'stats' && <StatsScreen />}
                 {panel.tab === 'settings' && <SettingsScreen onQuit={onQuit} />}
+                {panel.tab === 'manager' && <ManagerChat go={go} />}
               </div>
             </div>
           </section>
         </div>
       )}
 
-      {ev && !racing && !g.seasonEnd && !free && (
+      {ev && !racing && !g.seasonEnd && !free && !showUrgent && (
         <Modal>
           <div className="eyebrow">Ereignis</div>
           <h2>{ev.title}</h2>
@@ -559,6 +594,19 @@ function Shell({ onQuit }: { onQuit: () => void }) {
       )}
       {g.seasonEnd && !racing && !free && <SeasonEndModal />}
 
+      {showUrgent && urgent && (
+        <Modal>
+          <div className="eyebrow">Nachricht von Managerin {MANAGER.name}</div>
+          <h2>Vertrag läuft bald aus</h2>
+          <p style={{ whiteSpace: 'pre-line' }}>{urgent.text}</p>
+          <div className="row">
+            {(urgent.actions ?? []).map((a) => (
+              <Btn key={a.screen} variant="primary" onClick={() => { update((st) => ackManager(st, urgent.id)); go(a.screen as Screen); }}>{a.label}</Btn>
+            ))}
+            <Btn variant={urgent.actions?.length ? 'ghost' : 'primary'} onClick={() => update((st) => ackManager(st, urgent.id))}>{urgent.actions?.length ? 'Später' : 'Verstanden'}</Btn>
+          </div>
+        </Modal>
+      )}
       {showTip && tipId && <TipModal id={tipId} onClose={() => update((s) => dismissTip(s, tipId))} />}
       {reopenTip && <TipModal id={reopenTip} onClose={() => setReopenTip(null)} />}
 
