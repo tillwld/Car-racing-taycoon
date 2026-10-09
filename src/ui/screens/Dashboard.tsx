@@ -11,14 +11,18 @@ import { lapsFor, shortName } from '../../game/weekend';
 import { driverRating } from '../../game/generators';
 import { sponsorIncomePerRace, totalSalaries } from '../../game/state';
 import { aufbauPath, features } from '../../game/tycoon';
+import { fmtPct, t, tp, tx } from '../../i18n';
+import { AdButton } from '../components/AdButton';
+import { rewardedSupported } from '../../platform/ads';
+import { canClaimSponsorBonus, grantSponsorBonus, sponsorBonusAmount } from '../../game/adRewards';
 
 export default function Dashboard({ go }: { go: (s: Screen) => void }) {
-  const { game: g } = useLoadedGame();
+  const { game: g, update, toast } = useLoadedGame();
   const [tab, setTab] = useState<'today' | 'team' | 'news'>('today');
   const [allSteps, setAllSteps] = useState(false);
   const f = features(g);
   const trackId = g.calendar[g.round];
-  const t = trackId ? TRACK_BY_ID[trackId] : null;
+  const track = trackId ? TRACK_BY_ID[trackId] : null;
   const stats = playerCarStats(g);
   const rating = carRating(stats);
   const st = computeStandings(g);
@@ -41,59 +45,59 @@ export default function Dashboard({ go }: { go: (s: Screen) => void }) {
   const nextStep = path.find((x) => x.state === 'next');
 
   const alerts: { text: string; to: Screen; tone: 'bad' | 'warn' }[] = [];
-  if (f.drivers && g.team.driverIds.length < 2) alerts.push({ text: 'Ein Cockpit ist frei – verpflichte einen zweiten Fahrer.', to: 'drivers', tone: 'bad' });
+  if (f.drivers && g.team.driverIds.length < 2) alerts.push({ text: t('dash.alert.freeCockpit'), to: 'drivers', tone: 'bad' });
   for (const id of f.drivers ? g.team.driverIds : []) {
     const d = g.drivers[id];
-    if (d && d.contract <= 3) alerts.push({ text: `Vertrag von ${d.name} ${d.contract <= 1 ? 'läuft nach dem nächsten Rennen aus' : `läuft in ${d.contract} Rennen aus`}.`, to: 'drivers', tone: d.contract <= 1 ? 'bad' : 'warn' });
+    if (d && d.contract <= 3) alerts.push({ text: d.contract <= 1 ? t('dash.alert.driverContractLast', { name: d.name }) : tp('dash.alert.driverContract', d.contract, { name: d.name }), to: 'drivers', tone: d.contract <= 1 ? 'bad' : 'warn' });
   }
-  for (const sp of f.sponsors ? g.sponsors : []) if (sp.races <= 3) alerts.push({ text: `Sponsorenvertrag mit ${sp.name} ${sp.races <= 1 ? 'läuft nach dem nächsten Rennen aus' : `läuft in ${sp.races} Rennen aus`}.`, to: 'sponsors', tone: sp.races <= 1 ? 'bad' : 'warn' });
-  for (const [k, v] of f.garage ? Object.entries(g.car.condition) : []) if (v < 0.7) alerts.push({ text: `${CONDITION_LABELS[k as keyof typeof CONDITION_LABELS]} nur noch bei ${Math.round(v * 100)} % – Reparatur empfohlen.`, to: 'garage', tone: v < 0.45 ? 'bad' : 'warn' });
-  if (f.sponsors && !g.sponsors.some((s) => s.slot === 'main')) alerts.push({ text: 'Kein Hauptsponsor – dir entgehen Einnahmen.', to: 'sponsors', tone: 'bad' });
-  if (f.staff && !g.staff.mechanic) alerts.push({ text: 'Ohne Mechaniker dauern Boxenstopps sehr lange.', to: 'staff', tone: 'warn' });
-  if (f.garage && partsBusy < slots.parts && g.money > 150000) alerts.push({ text: 'Ein Entwicklungsplatz ist frei – starte ein Upgrade.', to: 'garage', tone: 'warn' });
-  if (f.research && resBusy < slots.research && g.money > 150000) alerts.push({ text: 'Das Forschungslabor ist frei.', to: 'research', tone: 'warn' });
-  if (g.money < 0) alerts.unshift({ text: 'Dein Konto ist im Minus! Spare bei Personal oder hole Sponsoren.', to: 'finance', tone: 'bad' });
+  for (const sp of f.sponsors ? g.sponsors : []) if (sp.races <= 3) alerts.push({ text: sp.races <= 1 ? t('dash.alert.sponsorContractLast', { name: sp.name }) : tp('dash.alert.sponsorContract', sp.races, { name: sp.name }), to: 'sponsors', tone: sp.races <= 1 ? 'bad' : 'warn' });
+  for (const [k, v] of f.garage ? Object.entries(g.car.condition) : []) if (v < 0.7) alerts.push({ text: t('dash.alert.condition', { part: CONDITION_LABELS[k as keyof typeof CONDITION_LABELS], v }), to: 'garage', tone: v < 0.45 ? 'bad' : 'warn' });
+  if (f.sponsors && !g.sponsors.some((s) => s.slot === 'main')) alerts.push({ text: t('dash.alert.noMainSponsor'), to: 'sponsors', tone: 'bad' });
+  if (f.staff && !g.staff.mechanic) alerts.push({ text: t('dash.alert.noMechanic'), to: 'staff', tone: 'warn' });
+  if (f.garage && partsBusy < slots.parts && g.money > 150000) alerts.push({ text: t('dash.alert.devSlotFree'), to: 'garage', tone: 'warn' });
+  if (f.research && resBusy < slots.research && g.money > 150000) alerts.push({ text: t('dash.alert.labFree'), to: 'research', tone: 'warn' });
+  if (g.money < 0) alerts.unshift({ text: t('dash.alert.overdrawn'), to: 'finance', tone: 'bad' });
 
   return (
     <>
       <StationIntro
         id="office"
         icon="dashboard"
-        lead="Das Büro ist deine Schaltzentrale. Hier siehst du auf einen Blick, was als Nächstes ansteht."
+        lead={t('dash.intro.lead')}
         items={[
-          { title: 'Heute', text: 'Das nächste Rennen, dein Geld und eine kurze To-do-Liste. Die Hinweise führen dich mit einem Klick zur richtigen Station.' },
-          { title: 'Dein Aufbau', text: 'Neue Bereiche schaltest du nacheinander frei. Hier steht immer der nächste Schritt und was dafür fehlt.' },
-          { title: 'Team', text: 'Auto, Zustand und beide Fahrer in einer Übersicht.' },
-          { title: 'Neuigkeiten', text: 'Meldungen aus dem Fahrerlager: Ergebnisse, Wechsel und Ereignisse.' },
+          { title: t('dash.intro.todayTitle'), text: t('dash.intro.todayText') },
+          { title: t('dash.intro.buildTitle'), text: t('dash.intro.buildText') },
+          { title: t('dash.intro.teamTitle'), text: t('dash.intro.teamText') },
+          { title: t('dash.intro.newsTitle'), text: t('dash.intro.newsText') },
         ]}
-        tip="Tipp: Starte jedes Mal hier. Die To-do-Liste sagt dir, was als Nächstes sinnvoll ist."
+        tip={t('dash.intro.tip')}
       />
 
       <SubTabs
         value={tab}
         onChange={setTab}
         tabs={[
-          { v: 'today', l: 'Heute', hint: 'Nächstes Rennen, Geld, Aufbau und offene Aufgaben.', badge: alerts.length || undefined },
-          { v: 'team', l: 'Team', hint: 'Dein Auto, der Fahrzeugzustand und deine zwei Fahrer.' },
-          { v: 'news', l: 'Neuigkeiten', hint: 'Die letzten Meldungen aus dem Fahrerlager.' },
+          { v: 'today', l: t('dash.tab.today'), hint: t('dash.tab.todayHint'), badge: alerts.length || undefined },
+          { v: 'team', l: t('dash.tab.team'), hint: t('dash.tab.teamHint') },
+          { v: 'news', l: t('dash.tab.news'), hint: t('dash.tab.newsHint') },
         ]}
       />
 
       {tab === 'today' && (
       <>
-      {t && (
+      {track && (
         <section className="card hero-race">
           <div className="stack" style={{ gap: 12 }}>
             <div className="row">
-              <span className="eyebrow">Nächstes Rennen · Runde {g.round + 1} von {g.calendar.length}</span>
+              <span className="eyebrow">{t('dash.nextRace', { round: g.round + 1, total: g.calendar.length })}</span>
             </div>
             <div className="row" style={{ gap: 12 }}>
-              <FlagStrip colors={t.flag} />
-              <h1>{t.name}</h1>
+              <FlagStrip colors={track.flag} />
+              <h1>{track.name}</h1>
             </div>
-            <p className="muted" style={{ maxWidth: 560 }}>{t.description}</p>
+            <p className="muted" style={{ maxWidth: 560 }}>{track.description}</p>
             <div className="row" style={{ gap: 14 }}>
-              <span className="pill">{lapsFor(g)} Runden</span>
+              <span className="pill">{tp('dash.laps', lapsFor(g))}</span>
               <span className="pill">{TIERS[g.tier].name}</span>
               {forecast ? (
                 <span className="row" style={{ gap: 4 }}>
@@ -104,28 +108,28 @@ export default function Dashboard({ go }: { go: (s: Screen) => void }) {
                   ))}
                 </span>
               ) : (
-                <span className="muted" style={{ fontSize: 13 }}>Regenrisiko {Math.round(t.rainChance * 100)} %</span>
+                <span className="muted" style={{ fontSize: 13 }}>{t('dash.rainRisk', { p: track.rainChance })}</span>
               )}
             </div>
             <div className="row">
               <Btn variant="primary big" icon="flag" onClick={() => go('race')}>
-                {g.weekend ? 'Rennwochenende fortsetzen' : 'Zum Rennwochenende'}
+                {g.weekend ? t('dash.continueWeekend') : t('dash.toWeekend')}
               </Btn>
             </div>
           </div>
-          <TrackShape trackId={t.id} />
+          <TrackShape trackId={track.id} />
         </section>
       )}
 
       <section className="card stack" style={{ gap: 10 }}>
         <div className="card-h" style={{ marginBottom: 0 }}>
           <div>
-            <h3>Dein Aufbau</h3>
+            <h3>{t('dash.build.title')}</h3>
             <p className="muted" style={{ fontSize: 13, marginTop: 2 }}>
-              {nextStep ? `${builtCount} von ${path.length} Bereichen gebaut. Der nächste Bereich schaltet sich frei, sobald du die Bedingung erfüllst.` : 'Alle Bereiche sind gebaut. Starke Leistung!'}
+              {nextStep ? t('dash.build.progress', { built: builtCount, total: path.length }) : t('dash.build.allDone')}
             </p>
           </div>
-          <Btn variant="sm ghost" onClick={() => setAllSteps(!allSteps)}>{allSteps ? 'Weniger anzeigen' : 'Alle Schritte'}</Btn>
+          <Btn variant="sm ghost" onClick={() => setAllSteps(!allSteps)}>{allSteps ? t('dash.build.less') : t('dash.build.all')}</Btn>
         </div>
         <div className="aufbau">
           {path
@@ -135,9 +139,9 @@ export default function Dashboard({ go }: { go: (s: Screen) => void }) {
                 <span className="dot">{x.state === 'built' ? <Icon name="check" size={13} /> : path.indexOf(x) + 1}</span>
                 <div>
                   <b>{x.name}</b>
-                  <small>{x.state === 'next' ? `${x.why}${x.text ? ` · ${x.text}` : ''}` : x.state === 'built' ? 'gebaut' : 'folgt später'}</small>
+                  <small>{x.state === 'next' ? `${x.why}${x.text ? ` · ${x.text}` : ''}` : x.state === 'built' ? t('dash.build.built') : t('dash.build.later')}</small>
                 </div>
-                {x.state === 'next' && <span className="pill team">als Nächstes</span>}
+                {x.state === 'next' && <span className="pill team">{t('dash.build.nextPill')}</span>}
               </div>
             ))}
         </div>
@@ -145,34 +149,34 @@ export default function Dashboard({ go }: { go: (s: Screen) => void }) {
 
       <section className="grid g4">
         <div className="card stat-tile">
-          <span className="eyebrow">Budget</span>
+          <span className="eyebrow">{t('dash.tile.budget')}</span>
           <span className="big-num"><Money v={g.money} compact /></span>
-          <span className="sub">{g.round > 0 || g.history.length ? <>Letztes Rennen <Money v={lastProfit} sign compact /></> : 'Noch kein Rennen gefahren'}</span>
+          <span className="sub">{g.round > 0 || g.history.length ? <>{t('dash.tile.lastRace')} <Money v={lastProfit} sign compact /></> : t('dash.tile.noRaceYet')}</span>
         </div>
         <div className="card stat-tile">
-          <span className="eyebrow">Reputation</span>
+          <span className="eyebrow">{t('dash.tile.reputation')}</span>
           <span className="big-num">{Math.round(g.reputation)}<span className="muted" style={{ fontSize: 18 }}>/100</span></span>
           <Bar value={g.reputation} />
         </div>
         <div className="card stat-tile">
-          <span className="eyebrow">Meisterschaft</span>
-          <span className="big-num">{g.results.length ? `P${teamPos}` : '–'}<span className="muted" style={{ fontSize: 16 }}> Team</span></span>
-          <span className="sub">{st.teams[teamPos - 1]?.points ?? 0} Punkte · Fahrer {g.results.length ? myStand.map((d) => `P${st.drivers.indexOf(d) + 1}`).join(' / ') : 'noch kein Rennen'}</span>
+          <span className="eyebrow">{t('dash.tile.championship')}</span>
+          <span className="big-num">{g.results.length ? `P${teamPos}` : '–'}<span className="muted" style={{ fontSize: 16 }}> {t('dash.tile.teamSuffix')}</span></span>
+          <span className="sub">{t('dash.tile.pointsDrivers', { points: tp('dash.points', st.teams[teamPos - 1]?.points ?? 0), pos: g.results.length ? myStand.map((d) => `P${st.drivers.indexOf(d) + 1}`).join(' / ') : t('dash.tile.noRaceShort') })}</span>
         </div>
         <div className="card stat-tile">
-          <span className="eyebrow">Pro Rennen</span>
+          <span className="eyebrow">{t('dash.tile.perRace')}</span>
           <span className="big-num" style={{ fontSize: 26 }}><Money v={income} compact /></span>
-          <span className="sub">Sponsoren · Fixkosten <Money v={-costs} compact /></span>
+          <span className="sub">{t('dash.tile.sponsorsFixed')} <Money v={-costs} compact /></span>
         </div>
       </section>
 
       <section className="grid g1">
         <div className="card stack" style={{ gap: 10 }}>
           <div className="card-h">
-            <h3>To-do</h3>
-            <span className="muted" style={{ fontSize: 13 }}>{alerts.length ? `${alerts.length} Hinweise` : 'Alles im grünen Bereich'}</span>
+            <h3>{t('dash.todo.title')}</h3>
+            <span className="muted" style={{ fontSize: 13 }}>{alerts.length ? tp('dash.todo.count', alerts.length) : t('dash.todo.allGood')}</span>
           </div>
-          {alerts.length === 0 && <p className="muted">Keine offenen Punkte. Zeit für das nächste Rennen.</p>}
+          {alerts.length === 0 && <p className="muted">{t('dash.todo.none')}</p>}
           {alerts.slice(0, 6).map((a, i) => (
             <button key={i} type="button" className="choice" style={{ gridTemplateColumns: 'auto 1fr auto', display: 'grid', alignItems: 'center', gap: 10 }} onClick={() => go(a.to)}>
               <span className={a.tone}><Icon name="info" size={18} /></span>
@@ -183,12 +187,12 @@ export default function Dashboard({ go }: { go: (s: Screen) => void }) {
           {g.developments.length > 0 && (
             <>
               <div className="sep" />
-              <div className="eyebrow">In Entwicklung</div>
+              <div className="eyebrow">{t('dash.dev.title')}</div>
               {g.developments.map((d) => (
                 <div key={d.id} className="stack" style={{ gap: 4 }}>
                   <div className="row between" style={{ fontSize: 14 }}>
-                    <span>{d.label}</span>
-                    <span className="muted">noch {d.remaining} {d.remaining === 1 ? 'Rennen' : 'Rennen'}</span>
+                    <span>{tx(d.label)}</span>
+                    <span className="muted">{tp('dash.dev.remaining', d.remaining)}</span>
                   </div>
                   <Bar value={d.total - d.remaining} max={d.total} />
                 </div>
@@ -197,6 +201,30 @@ export default function Dashboard({ go }: { go: (s: Screen) => void }) {
           )}
         </div>
       </section>
+      {rewardedSupported() && (
+        <section className="card stack" style={{ gap: 8 }}>
+          <div className="card-h">
+            <h3>{t('ads.sponsorBonus.title')}</h3>
+          </div>
+          {canClaimSponsorBonus(g) ? (
+            <AdButton
+              placement="sponsor_bonus"
+              label={t('ads.sponsorBonus.button', { amount: sponsorBonusAmount(g) })}
+              hint={`${t('ads.sponsorBonus.hint')} ${t('ads.optional')}`}
+              onReward={() => {
+                let amount = 0;
+                update((st) => {
+                  amount = grantSponsorBonus(st);
+                });
+                toast(t('ads.sponsorBonus.granted', { amount }), 'good');
+              }}
+              onFail={() => toast(t('ads.failed'), 'bad')}
+            />
+          ) : (
+            <p className="muted">{t('ads.sponsorBonus.used')}</p>
+          )}
+        </section>
+      )}
       </>
       )}
 
@@ -204,8 +232,8 @@ export default function Dashboard({ go }: { go: (s: Screen) => void }) {
       <section className="grid g1">
         <div className="card stack" style={{ gap: 14 }}>
           <div className="card-h">
-            <h3>Team</h3>
-            {f.garage && <Btn variant="sm ghost" onClick={() => go('garage')}>Werkstatt</Btn>}
+            <h3>{t('dash.team.title')}</h3>
+            {f.garage && <Btn variant="sm ghost" onClick={() => go('garage')}>{t('dash.team.workshop')}</Btn>}
           </div>
           <div className="row" style={{ gap: 14 }}>
             <Logo kind={g.team.logo} color={g.team.color} color2={g.team.color2} short={g.team.short} size={64} />
@@ -213,12 +241,12 @@ export default function Dashboard({ go }: { go: (s: Screen) => void }) {
               <h2 style={{ fontSize: 26 }}>{g.team.name}</h2>
               <div className="muted" style={{ fontSize: 14 }}>{CHASSIS_BY_ID[g.car.chassisId]?.name} · {FACILITY[g.facility - 1].name}</div>
             </div>
-            <div className="rating" style={{ marginLeft: 'auto', textAlign: 'right' }}>{rating}<small>Auto</small></div>
+            <div className="rating" style={{ marginLeft: 'auto', textAlign: 'right' }}>{rating}<small>{t('dash.team.car')}</small></div>
           </div>
           <div className="stack" style={{ gap: 6 }}>
             <div className="row between" style={{ fontSize: 13 }}>
-              <span className="muted">Fahrzeugzustand</span>
-              <span className="num">{Math.round(condAvg * 100)} %</span>
+              <span className="muted">{t('dash.team.condition')}</span>
+              <span className="num">{fmtPct(condAvg)}</span>
             </div>
             <Bar value={condAvg * 100} tone={condAvg < 0.6 ? 'bad' : condAvg < 0.8 ? 'warn' : 'good'} />
           </div>
@@ -233,10 +261,10 @@ export default function Dashboard({ go }: { go: (s: Screen) => void }) {
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <b>{d.name}</b>
                   <div className="muted" style={{ fontSize: 13 }}>
-                    {i === 0 ? 'Fahrer 1 · von dir gesteuert' : 'Fahrer 2'} · {ds?.points ?? 0} Punkte · Vertrag {d.contract} Rennen
+                    {i === 0 ? t('dash.team.driver1') : t('dash.team.driver2')} · {tp('dash.points', ds?.points ?? 0)} · {tp('dash.team.contract', d.contract)}
                   </div>
                 </div>
-                <div className="rating">{driverRating(d)}<small>Wert</small></div>
+                <div className="rating">{driverRating(d)}<small>{t('dash.team.rating')}</small></div>
               </div>
             );
           })}
@@ -247,13 +275,13 @@ export default function Dashboard({ go }: { go: (s: Screen) => void }) {
       {tab === 'news' && (
       <section className="card">
         <div className="card-h">
-          <h3>Fahrerlager-News</h3>
+          <h3>{t('dash.news.title')}</h3>
         </div>
         <div className="news">
           {g.news.slice(0, 8).map((n) => (
             <div key={n.id} className={`news-item ${n.tone}`}>
               <i />
-              <span>{n.text}</span>
+              <span>{tx(n.text)}</span>
             </div>
           ))}
         </div>

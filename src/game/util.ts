@@ -1,3 +1,5 @@
+import { fmtMoney, fmtPct } from '../i18n/format';
+
 export const clamp = (v: number, a: number, b: number) => (v < a ? a : v > b ? b : v);
 export const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 export const rand = (a = 0, b = 1) => a + Math.random() * (b - a);
@@ -19,15 +21,9 @@ export function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-const nf = new Intl.NumberFormat('de-DE');
+/** Geldbetrag in der aktuellen Sprache (siehe src/i18n/format.ts) */
 export function money(v: number, compact = false): string {
-  const sign = v < 0 ? '−' : '';
-  const a = Math.abs(v);
-  if (compact) {
-    if (a >= 1e6) return `${sign}${(a / 1e6).toLocaleString('de-DE', { maximumFractionDigits: 2 })} Mio. €`;
-    if (a >= 1e4) return `${sign}${Math.round(a / 1e3).toLocaleString('de-DE')} Tsd. €`;
-  }
-  return `${sign}${nf.format(Math.round(a))} €`;
+  return fmtMoney(v, compact);
 }
 
 export function lapTime(t: number | undefined | null): string {
@@ -43,7 +39,7 @@ export function gapTime(t: number): string {
 }
 
 export function pct(v: number) {
-  return `${Math.round(v * 100)} %`;
+  return fmtPct(v);
 }
 
 export function ordinal(n: number) {

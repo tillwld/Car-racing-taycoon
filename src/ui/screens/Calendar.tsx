@@ -4,29 +4,31 @@ import { StationIntro } from '../components/Station';
 import { Btn, FlagStrip, TrackShape } from '../components/common';
 import { TRACK_BY_ID } from '../../data/tracks';
 import { lapTime } from '../../game/util';
+import { t, tp, useLang } from '../../i18n';
 
 export default function Calendar({ go }: { go: (s: Screen) => void }) {
   const { game: g } = useLoadedGame();
+  useLang();
   return (
     <>
     <StationIntro
       id="calendar"
       icon="calendar"
-      lead="Der Rennkalender zeigt alle Rennen dieser Saison."
+      lead={t('cal.intro.lead')}
       items={[
-        { title: 'Nächstes Rennen', text: 'Das hervorgehobene Rennen ist als Nächstes dran. Zum Starten gehst du zum Team-Transporter.' },
-        { title: 'Ergebnisse', text: 'Bei gefahrenen Rennen siehst du, wie deine Fahrer abgeschnitten haben.' },
-        { title: 'Strecken', text: 'Jede Strecke ist anders: lange Geraden, enge Kurven oder Regenrisiko.' },
+        { title: t('cal.intro.nextTitle'), text: t('cal.intro.nextText') },
+        { title: t('cal.intro.resultsTitle'), text: t('cal.intro.resultsText') },
+        { title: t('cal.intro.tracksTitle'), text: t('cal.intro.tracksText') },
       ]}
     />
     <section className="card">
       <div className="card-h">
-        <h3>Saison {g.season}</h3>
-        <span className="muted" style={{ fontSize: 13 }}>{g.calendar.length} Rennwochenenden mit Training, Qualifying und Rennen</span>
+        <h3>{t('cal.season', { season: g.season })}</h3>
+        <span className="muted" style={{ fontSize: 13 }}>{tp('cal.weekends', g.calendar.length)}</span>
       </div>
       <div className="timeline">
         {g.calendar.map((id, i) => {
-          const t = TRACK_BY_ID[id];
+          const trk = TRACK_BY_ID[id];
           const res = g.results.find((r) => r.round === i);
           const mine = res?.entries.filter((e) => e.teamId === 'player') ?? [];
           const next = i === g.round;
@@ -36,23 +38,23 @@ export default function Calendar({ go }: { go: (s: Screen) => void }) {
               <TrackShape trackId={id} showStart={false} />
               <div style={{ minWidth: 0 }}>
                 <div className="row" style={{ gap: 8 }}>
-                  <FlagStrip colors={t.flag} />
-                  <b>{t.name}</b>
-                  <span className="muted" style={{ fontSize: 13 }}>{t.country}</span>
+                  <FlagStrip colors={trk.flag} />
+                  <b>{trk.name}</b>
+                  <span className="muted" style={{ fontSize: 13 }}>{trk.country}</span>
                 </div>
                 <div className="muted" style={{ fontSize: 13 }}>
                   {res
-                    ? `Ergebnis: ${mine.map((e) => (e.dnf ? 'Ausfall' : `P${e.pos}`)).join(' / ')}`
-                    : `Regenrisiko ${Math.round(t.rainChance * 100)} % · Reifenverschleiß ${t.tyreWear >= 1.15 ? 'hoch' : t.tyreWear <= 0.85 ? 'niedrig' : 'mittel'}`}
-                  {g.stats.bestLaps[id] ? ` · Deine Bestzeit ${lapTime(g.stats.bestLaps[id])}` : ''}
+                    ? t('cal.result', { list: mine.map((e) => (e.dnf ? t('cal.dnf') : `P${e.pos}`)).join(' / ') })
+                    : t('cal.rainWear', { rain: trk.rainChance, wear: t(trk.tyreWear >= 1.15 ? 'cal.wear.high' : trk.tyreWear <= 0.85 ? 'cal.wear.low' : 'cal.wear.mid') })}
+                  {g.stats.bestLaps[id] ? ` · ${t('cal.bestTime', { time: lapTime(g.stats.bestLaps[id]) })}` : ''}
                 </div>
               </div>
               {next ? (
-                <Btn variant="primary sm" onClick={() => go('race')}>Los</Btn>
+                <Btn variant="primary sm" onClick={() => go('race')}>{t('cal.go')}</Btn>
               ) : res ? (
-                <span className="pill good">gefahren</span>
+                <span className="pill good">{t('cal.done')}</span>
               ) : (
-                <span className="pill">offen</span>
+                <span className="pill">{t('cal.open')}</span>
               )}
             </div>
           );

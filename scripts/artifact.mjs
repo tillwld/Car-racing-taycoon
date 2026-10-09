@@ -5,7 +5,8 @@ const html = readFileSync('dist-artifact/index.html', 'utf8');
 const title = html.match(/<title>[\s\S]*?<\/title>/)[0];
 const links = [...html.matchAll(/<link[^>]+fonts\.(googleapis|gstatic)[^>]*>/g)].map((m) => m[0]).join('\n');
 const styles = [...html.matchAll(/<style[^>]*>[\s\S]*?<\/style>/g)].map((m) => m[0]).join('\n');
-const scripts = [...html.matchAll(/<script[^>]*>[\s\S]*?<\/script>/g)].map((m) => m[0].replace(/ crossorigin/g, ''));
+// Externe Skripte (z. B. die Portal-SDK) gehören nicht in die gehostete Einzelseite
+const scripts = [...html.matchAll(/<script[^>]*>[\s\S]*?<\/script>/g)].map((m) => m[0].replace(/ crossorigin/g, '')).filter((x) => !/<script[^>]+src=["']https?:/i.test(x));
 if (!scripts.length) throw new Error('Kein Skript im Build gefunden');
 const page = [title, links, styles, '<div id="root"></div>', ...scripts].join('\n');
 mkdirSync('artifact', { recursive: true });

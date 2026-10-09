@@ -8,6 +8,7 @@ import { academyCost, driverRequiredRep, promoteAcademy, releaseCost, releaseDri
 import { shortName } from '../../game/weekend';
 import { computeStandings } from '../../game/season';
 import type { Driver } from '../../types';
+import { t, tp, tx } from '../../i18n';
 
 export default function Drivers() {
   const { game: g, update } = useLoadedGame();
@@ -33,23 +34,23 @@ export default function Drivers() {
       <StationIntro
         id="lounge"
         icon="drivers"
-        lead="Hier kümmerst du dich um deine Fahrer: Verträge, neue Fahrer und Nachwuchs."
+        lead={t('drivers.intro.lead')}
         items={[
-          { title: 'Mein Team', text: 'Fahrer 1 steuerst du selbst, Fahrer 2 fährt der Computer. Du siehst Werte, Moral und Vertrag.' },
-          { title: 'Verträge verlängern', text: 'Läuft ein Vertrag aus, verlässt der Fahrer das Team. Verlängere rechtzeitig, am besten mit zwei Rennen Luft.' },
-          { title: 'Transfermarkt', text: 'Hier findest du neue Fahrer. Stärkere Fahrer verlangen mehr Gehalt und einen besseren Ruf deines Teams.' },
-          { title: 'Akademie', text: 'Junge Talente reifen heran und können später zu Stars werden. Sie kosten wenig und lassen sich ins Cockpit befördern.' },
+          { title: t('drivers.intro.teamTitle'), text: t('drivers.intro.teamText') },
+          { title: t('drivers.intro.renewTitle'), text: t('drivers.intro.renewText') },
+          { title: t('drivers.intro.marketTitle'), text: t('drivers.intro.marketText') },
+          { title: t('drivers.intro.academyTitle'), text: t('drivers.intro.academyText') },
         ]}
-        tip="Tipp: Ein Cockpit leer zu lassen kostet Punkte und Preisgeld. Besetze beide Plätze."
+        tip={t('drivers.intro.tip')}
       />
 
       <SubTabs
         value={tab}
         onChange={setTab}
         tabs={[
-          { v: 'team', l: 'Mein Team', hint: 'Deine zwei Fahrer: Werte, Moral, Vertrag und Verlängerung.', badge: mine.length < 2 ? `${mine.length}/2` : undefined },
-          { v: 'market', l: 'Transfermarkt', hint: 'Verfügbare Fahrer, die du verpflichten kannst. Sortiere nach Stärke, Gehalt oder Alter.', badge: market.length },
-          { v: 'academy', l: 'Akademie', hint: 'Nachwuchs: Talente bis 20 Jahre entwickeln sich schneller und kosten wenig.', badge: `${academy.length}/3` },
+          { v: 'team', l: t('drivers.tab.team'), hint: t('drivers.tab.teamHint'), badge: mine.length < 2 ? `${mine.length}/2` : undefined },
+          { v: 'market', l: t('drivers.tab.market'), hint: t('drivers.tab.marketHint'), badge: market.length },
+          { v: 'academy', l: t('drivers.tab.academy'), hint: t('drivers.tab.academyHint'), badge: `${academy.length}/3` },
         ]}
       />
 
@@ -62,53 +63,53 @@ export default function Drivers() {
               <div className="driver-head">
                 <Helmet color={g.team.color} color2={g.team.color2} label={shortName(d)} />
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div className="eyebrow">{i === 0 ? 'Fahrer 1 · selbst gesteuert' : 'Fahrer 2'}</div>
+                  <div className="eyebrow">{i === 0 ? t('drivers.team.driver1') : t('drivers.team.driver2')}</div>
                   <h3>{d.name}</h3>
                   <div className="row" style={{ gap: 6, fontSize: 13 }}>
                     <CountryTag code={d.country} />
-                    <span className="muted">{d.age} Jahre · {d.careerRaces} Rennen · {d.careerWins} Siege</span>
+                    <span className="muted">{t('drivers.age', { n: d.age })} · {tp('drivers.careerRaces', d.careerRaces)} · {tp('drivers.careerWins', d.careerWins)}</span>
                   </div>
                 </div>
-                <div className="rating">{driverRating(d)}<small>Wert</small></div>
+                <div className="rating">{driverRating(d)}<small>{t('drivers.rating')}</small></div>
               </div>
               <div className="row" style={{ gap: 4 }}>
-                {d.traits.map((t) => <span key={t} className="pill">{t}</span>)}
+                {d.traits.map((tr) => <span key={tr} className="pill">{tx(tr)}</span>)}
               </div>
               <DriverStatsBlock d={d} />
               <div className="grid g2 keep" style={{ gap: 10 }}>
                 <div className="stack" style={{ gap: 4 }}>
-                  <span className="eyebrow">Moral</span>
+                  <span className="eyebrow">{t('drivers.team.morale')}</span>
                   <Bar value={d.morale} tone={d.morale < 40 ? 'bad' : d.morale < 65 ? 'warn' : 'good'} />
                 </div>
                 <div className="stack" style={{ gap: 2, fontSize: 13 }}>
-                  <span className="eyebrow">Saison</span>
-                  <span>{ds?.points ?? 0} Punkte · {ds?.podiums ?? 0} Podien</span>
+                  <span className="eyebrow">{t('drivers.team.season')}</span>
+                  <span>{tp('drivers.points', ds?.points ?? 0)} · {tp('drivers.podiums', ds?.podiums ?? 0)}</span>
                 </div>
               </div>
               <div className="row between" style={{ fontSize: 14 }}>
-                <span>Vertrag: <b className={d.contract <= 2 ? 'warn' : ''}>{d.contract} Rennen</b></span>
-                <span>Gehalt: <Money v={d.salary} />/R</span>
+                <span>{t('drivers.team.contract')} <b className={d.contract <= 2 ? 'warn' : ''}>{tp('drivers.races', d.contract)}</b></span>
+                <span>{t('drivers.team.salary')} <Money v={d.salary} />{t('drivers.perRace')}</span>
               </div>
               <div className="row">
-                <Btn variant="sm" onClick={() => update((s) => renewDriver(s, d.id, 7))}>+7 Rennen verlängern</Btn>
-                <Btn variant="sm" onClick={() => update((s) => renewDriver(s, d.id, 14))}>+14</Btn>
+                <Btn variant="sm" onClick={() => update((s) => renewDriver(s, d.id, 7))}>{t('drivers.team.renew7')}</Btn>
+                <Btn variant="sm" onClick={() => update((s) => renewDriver(s, d.id, 14))}>{t('drivers.team.renew14')}</Btn>
                 {i === 1 && (
                   <Btn variant="sm ghost" onClick={() => update((s) => { s.team.driverIds = [s.team.driverIds[1], s.team.driverIds[0]]; })}>
-                    Zu Fahrer 1 machen
+                    {t('drivers.team.makeFirst')}
                   </Btn>
                 )}
-                <Btn variant="sm danger" onClick={() => setConfirmRelease(d)}>Entlassen</Btn>
+                <Btn variant="sm danger" onClick={() => setConfirmRelease(d)}>{t('drivers.release')}</Btn>
               </div>
             </div>
           );
         })}
         {mine.length < 2 && (
           <div className="card stack" style={{ placeContent: 'center', textAlign: 'center', minHeight: 200 }}>
-            <h3>Cockpit frei</h3>
-            <p className="muted">Verpflichte einen Fahrer vom Transfermarkt oder befördere ein Talent aus der Akademie.</p>
+            <h3>{t('drivers.team.openSeat')}</h3>
+            <p className="muted">{t('drivers.team.openSeatText')}</p>
             <div className="row" style={{ justifyContent: 'center' }}>
-              <Btn variant="primary sm" onClick={() => setTab('market')}>Zum Transfermarkt</Btn>
-              <Btn variant="sm" onClick={() => setTab('academy')}>Zur Akademie</Btn>
+              <Btn variant="primary sm" onClick={() => setTab('market')}>{t('drivers.team.toMarket')}</Btn>
+              <Btn variant="sm" onClick={() => setTab('academy')}>{t('drivers.team.toAcademy')}</Btn>
             </div>
           </div>
         )}
@@ -119,12 +120,12 @@ export default function Drivers() {
       <section className="card">
         <div className="card-h">
           <div>
-            <div className="eyebrow">Nachwuchs</div>
-            <h3>Akademie ({academy.length}/3)</h3>
+            <div className="eyebrow">{t('drivers.academy.eyebrow')}</div>
+            <h3>{t('drivers.academy.title', { count: academy.length })}</h3>
           </div>
-          <span className="muted" style={{ fontSize: 13 }}>Talente entwickeln sich schneller und kosten wenig. Aufnahme: <Money v={academyCost(g)} compact /></span>
+          <span className="muted" style={{ fontSize: 13 }}>{t('drivers.academy.note')} <Money v={academyCost(g)} compact /></span>
         </div>
-        {academy.length === 0 && <p className="muted">Noch keine Talente. Junge Fahrer auf dem Markt (bis 20 Jahre) kannst du direkt aufnehmen – oder du entdeckst eins über ein Ereignis.</p>}
+        {academy.length === 0 && <p className="muted">{t('drivers.academy.empty')}</p>}
         <div className="grid gauto">
           {academy.map((d) => (
             <div key={d.id} className="card flat stack" style={{ gap: 8 }}>
@@ -132,11 +133,11 @@ export default function Drivers() {
                 <b>{d.name}</b>
                 <span className="rating" style={{ fontSize: 20 }}>{driverRating(d)} <span className="muted" style={{ fontSize: 13 }}>→ {d.talent}</span></span>
               </div>
-              <span className="muted" style={{ fontSize: 13 }}>{d.age} Jahre · {d.country}</span>
+              <span className="muted" style={{ fontSize: 13 }}>{t('drivers.age', { n: d.age })} · {d.country}</span>
               <DriverStatsBlock d={d} compact />
               <div className="row">
-                <Btn variant="sm primary" onClick={() => trySign(d, true)}>Ins Cockpit befördern</Btn>
-                <Btn variant="sm ghost" onClick={() => update((s) => releaseDriver(s, d.id))}>Freigeben</Btn>
+                <Btn variant="sm primary" onClick={() => trySign(d, true)}>{t('drivers.academy.promote')}</Btn>
+                <Btn variant="sm ghost" onClick={() => update((s) => releaseDriver(s, d.id))}>{t('drivers.academy.letGo')}</Btn>
               </div>
             </div>
           ))}
@@ -148,10 +149,10 @@ export default function Drivers() {
       <section className="card">
         <div className="card-h">
           <div>
-            <div className="eyebrow">Transfermarkt</div>
-            <h3>Verfügbare Fahrer</h3>
+            <div className="eyebrow">{t('drivers.market.eyebrow')}</div>
+            <h3>{t('drivers.market.title')}</h3>
           </div>
-          <Seg value={sort} onChange={setSort} options={[{ v: 'rating', l: 'Stärke' }, { v: 'salary', l: 'Gehalt' }, { v: 'age', l: 'Alter' }]} />
+          <Seg value={sort} onChange={setSort} options={[{ v: 'rating', l: t('drivers.market.sortRating') }, { v: 'salary', l: t('drivers.market.sortSalary') }, { v: 'age', l: t('drivers.market.sortAge') }]} />
         </div>
         <div className="grid gauto">
           {market.map((d) => {
@@ -162,22 +163,22 @@ export default function Drivers() {
                 <div className="row between">
                   <div style={{ minWidth: 0 }}>
                     <b>{d.name}</b>
-                    <div className="muted" style={{ fontSize: 13 }}>{d.country} · {d.age} Jahre</div>
+                    <div className="muted" style={{ fontSize: 13 }}>{d.country} · {t('drivers.age', { n: d.age })}</div>
                   </div>
-                  <div className="rating">{driverRating(d)}<small>{d.talentKnown ? `Talent ${d.talent}` : 'Wert'}</small></div>
+                  <div className="rating">{driverRating(d)}<small>{d.talentKnown ? t('drivers.market.talent', { n: d.talent }) : t('drivers.rating')}</small></div>
                 </div>
-                {d.traits.length > 0 && <div className="row" style={{ gap: 4 }}>{d.traits.map((t) => <span key={t} className="pill">{t}</span>)}</div>}
+                {d.traits.length > 0 && <div className="row" style={{ gap: 4 }}>{d.traits.map((tr) => <span key={tr} className="pill">{tx(tr)}</span>)}</div>}
                 <DriverStatsBlock d={d} compact />
                 <div className="row between" style={{ fontSize: 13 }}>
-                  <span className="muted">Gehalt <Money v={d.salary} />/R</span>
-                  <span className="muted">Prämie <Money v={signingFee(d)} compact /></span>
+                  <span className="muted">{t('drivers.market.salary')} <Money v={d.salary} />{t('drivers.perRace')}</span>
+                  <span className="muted">{t('drivers.market.fee')} <Money v={signingFee(d)} compact /></span>
                 </div>
-                {tooGood && <span className="warn" style={{ fontSize: 12.5 }}>Wechselt erst ab Reputation {req - 30}.</span>}
+                {tooGood && <span className="warn" style={{ fontSize: 12.5 }}>{t('drivers.market.tooGood', { rep: req - 30 })}</span>}
                 <div className="row">
-                  <Btn variant="primary sm" disabled={tooGood || g.money < signingFee(d)} onClick={() => trySign(d)}>Verpflichten</Btn>
+                  <Btn variant="primary sm" disabled={tooGood || g.money < signingFee(d)} onClick={() => trySign(d)}>{t('drivers.market.sign')}</Btn>
                   {d.age <= 20 && (
                     <Btn variant="sm" disabled={g.academy.length >= 3 || g.money < academyCost(g)} onClick={() => update((s) => signAcademy(s, d.id))}>
-                      In die Akademie
+                      {t('drivers.market.toAcademy')}
                     </Btn>
                   )}
                 </div>
@@ -190,8 +191,8 @@ export default function Drivers() {
 
       {replace && (
         <Modal onClose={() => setReplace(null)}>
-          <h2>Wen ersetzen?</h2>
-          <p className="muted">Beide Cockpits sind besetzt. Der ersetzte Fahrer erhält eine Abfindung.</p>
+          <h2>{t('drivers.replace.title')}</h2>
+          <p className="muted">{t('drivers.replace.text')}</p>
           <div className="stack">
             {mine.map((d) => (
               <button
@@ -204,20 +205,20 @@ export default function Drivers() {
                 }}
               >
                 <b>{d.name}</b>
-                <span>Wert {driverRating(d)} · Abfindung <Money v={releaseCost(d)} /></span>
+                <span>{t('drivers.replace.info', { rating: driverRating(d) })} <Money v={releaseCost(d)} /></span>
               </button>
             ))}
           </div>
-          <Btn variant="ghost" onClick={() => setReplace(null)}>Abbrechen</Btn>
+          <Btn variant="ghost" onClick={() => setReplace(null)}>{t('drivers.cancel')}</Btn>
         </Modal>
       )}
       {confirmRelease && (
         <Modal onClose={() => setConfirmRelease(null)}>
-          <h2>{confirmRelease.name} entlassen?</h2>
-          <p className="muted">Die Abfindung beträgt <Money v={releaseCost(confirmRelease)} />. Ohne zwei Fahrer verlierst du Punkte und Preisgeld.</p>
+          <h2>{t('drivers.confirm.title', { name: confirmRelease.name })}</h2>
+          <p className="muted">{t('drivers.confirm.fee')} <Money v={releaseCost(confirmRelease)} />. {t('drivers.confirm.warn')}</p>
           <div className="row">
-            <Btn variant="danger" onClick={() => { update((s) => releaseDriver(s, confirmRelease.id)); setConfirmRelease(null); }}>Entlassen</Btn>
-            <Btn variant="ghost" onClick={() => setConfirmRelease(null)}>Abbrechen</Btn>
+            <Btn variant="danger" onClick={() => { update((s) => releaseDriver(s, confirmRelease.id)); setConfirmRelease(null); }}>{t('drivers.release')}</Btn>
+            <Btn variant="ghost" onClick={() => setConfirmRelease(null)}>{t('drivers.cancel')}</Btn>
           </div>
         </Modal>
       )}

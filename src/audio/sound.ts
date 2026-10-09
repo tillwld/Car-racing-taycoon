@@ -3,14 +3,37 @@
 class SoundSystem {
   ctx: AudioContext | null = null;
   master: GainNode | null = null;
-  muted = false;
+  muted = false; // vom Spieler selbst ausgeschaltet (Einstellung)
   volume = 0.7;
+  /** Das Portal hat den Ton ausgeschaltet (z. B. Stummtaste des Portals) */
+  private platformMuted = false;
+  /** Pausiert (Tab im Hintergrund, Werbung, Portal-Pause): der Audio-Kontext ist angehalten */
+  private suspended = false;
   private engine: { o1: OscillatorNode; o2: OscillatorNode; filter: BiquadFilterNode; gain: GainNode } | null = null;
   private squeal: { src: AudioBufferSourceNode; filter: BiquadFilterNode; gain: GainNode } | null = null;
   private noiseBuf: AudioBuffer | null = null;
   private lastEng = -1;
 
+  /** Browser erlauben Ton erst nach einer Eingabe des Spielers: vorher wird kein Audio-Kontext angelegt (keine Warnungen in der Konsole) */
+  private unlocked = false;
+
+  constructor() {
+    if (typeof window === 'undefined') return;
+    const unlock = () => {
+      this.unlocked = true;
+      for (const ev of ['pointerdown', 'keydown', 'touchstart']) window.removeEventListener(ev, unlock, true);
+      if (this.ctx && this.ctx.state === 'suspended' && !this.suspended) this.ctx.resume().catch(() => {});
+    };
+    for (const ev of ['pointerdown', 'keydown', 'touchstart']) window.addEventListener(ev, unlock, true);
+  }
+
+  private get gain() {
+    return this.muted || this.platformMuted ? 0 : this.volume;
+  }
+
   ensure() {
+    // Solange pausiert wird, bleibt der Ton angehalten (kein Neustart durch einzelne Effekte)
+    if (this.suspended || !this.unlocked) return false;
     if (this.ctx) {
       if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
       return true;
@@ -20,7 +43,7 @@ class SoundSystem {
       if (!AC) return false;
       this.ctx = new AC() as AudioContext;
       this.master = this.ctx.createGain();
-      this.master.gain.value = this.muted ? 0 : this.volume;
+      this.master.gain.value = this.gain;
       this.master.connect(this.ctx.destination);
       const len = this.ctx.sampleRate;
       this.noiseBuf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
@@ -34,12 +57,30 @@ class SoundSystem {
 
   setMuted(m: boolean) {
     this.muted = m;
-    if (this.master && this.ctx) this.master.gain.setTargetAtTime(m ? 0 : this.volume, this.ctx.currentTime, 0.05);
+    if (this.master && this.ctx) this.master.gain.setTargetAtTime(this.gain, this.ctx.currentTime, 0.05);
+  }
+
+  /** Das Portal schaltet den Ton aus oder an. Der eigene Wunsch des Spielers (muted) bleibt davon unberührt. */
+  setPlatformAudio(enabled: boolean) {
+    this.platformMuted = !enabled;
+    if (this.master && this.ctx) this.master.gain.setTargetAtTime(this.gain, this.ctx.currentTime, 0.05);
+  }
+
+  /** Audio-Kontext anhalten (Pause) oder wieder starten. Wiederhergestellt wird nur so, wie der Spieler es eingestellt hat. */
+  setSuspended(s: boolean) {
+    this.suspended = s;
+    if (!this.ctx) return;
+    if (s) this.ctx.suspend().catch(() => {});
+    else this.ctx.resume().catch(() => {});
+  }
+
+  get isSuspended() {
+    return this.suspended;
   }
 
   setVolume(v: number) {
     this.volume = v;
-    if (this.master && this.ctx && !this.muted) this.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.05);
+    if (this.master && this.ctx) this.master.gain.setTargetAtTime(this.gain, this.ctx.currentTime, 0.05);
   }
 
   private tone(freq: number, dur: number, type: OscillatorType = 'sine', vol = 0.25, when = 0, slideTo?: number) {

@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useLoadedGame } from '../store';
 import { Btn, Icon, Seg } from './common';
+import { t } from '../../i18n';
 
 export interface IntroItem {
   title: string;
@@ -35,20 +36,20 @@ export function StationIntro({ id, icon, lead, items, tip }: { id: string; icon:
   if (hidden) {
     return (
       <div className="intro-collapsed">
-        <span className="muted"><Icon name={icon} size={16} /> Was kann ich hier tun?</span>
-        <Btn variant="sm ghost" onClick={() => set(false)}>Erklärung anzeigen</Btn>
+        <span className="muted"><Icon name={icon} size={16} /> {t('station.whatCanIDo')}</span>
+        <Btn variant="sm ghost" onClick={() => set(false)}>{t('station.showHelp')}</Btn>
       </div>
     );
   }
   return (
-    <section className="station-intro" aria-label="Erklärung">
+    <section className="station-intro" aria-label={t('station.helpLabel')}>
       <div className="intro-head">
         <span className="intro-ico"><Icon name={icon} size={26} /></span>
         <div style={{ minWidth: 0 }}>
-          <div className="eyebrow">Das kannst du hier tun</div>
+          <div className="eyebrow">{t('station.whatYouCanDo')}</div>
           <p className="intro-lead">{lead}</p>
         </div>
-        <Btn variant="sm ghost" onClick={() => set(true)}>Ausblenden</Btn>
+        <Btn variant="sm ghost" onClick={() => set(true)}>{t('station.hide')}</Btn>
       </div>
       <ol className="intro-list">
         {items.map((it, i) => (
@@ -72,10 +73,10 @@ export function StationIntro({ id, icon, lead, items, tip }: { id: string; icon:
 
 /** Reiter innerhalb einer Station, jeweils mit einem Satz dazu, was man dort findet */
 export function SubTabs<T extends string>({ value, onChange, tabs }: { value: T; onChange: (v: T) => void; tabs: { v: T; l: string; hint: string; badge?: number | string }[] }) {
-  const cur = tabs.find((t) => t.v === value);
+  const cur = tabs.find((tb) => tb.v === value);
   return (
     <div className="subtabs">
-      <Seg value={value} onChange={onChange} options={tabs.map((t) => ({ v: t.v, l: t.badge !== undefined ? `${t.l} (${t.badge})` : t.l }))} />
+      <Seg value={value} onChange={onChange} options={tabs.map((tb) => ({ v: tb.v, l: tb.badge !== undefined ? `${tb.l} (${tb.badge})` : tb.l }))} />
       {cur && <p className="muted subtab-hint">{cur.hint}</p>}
     </div>
   );

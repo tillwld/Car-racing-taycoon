@@ -1,6 +1,7 @@
 // Layout des begehbaren Teamgeländes. Koordinaten in Welt-Einheiten (ca. 1 Einheit = 5 cm).
 // Bauflächen (Plots) werden erst durch Kaufen zu Gebäuden; die Fläche davor ist die Kauffläche.
 import type { GameState, PlotId } from '../../types';
+import { lazyRecord, t } from '../../i18n';
 import { PLOTS, PLOT_ORDER, plotLevel, plotVisible } from '../../game/tycoon';
 
 export type StationId = 'garage' | 'lab' | 'staff' | 'lounge' | 'sponsors' | 'office' | 'trophy' | 'truck' | 'calendar' | 'setup' | 'tyres' | 'pitwall';
@@ -40,20 +41,8 @@ export const GATE = { x0: 1010, y0: 995, x1: 1190, y1: 1092 };
 export const TEST_PAD = { x: 1100, y: 1062 };
 export const START = { x: 900, y: 780 };
 
-export const STATION_LABELS: Record<StationId, string> = {
-  garage: 'Werkstatt',
-  lab: 'Forschungslabor',
-  staff: 'Personalbüro',
-  lounge: 'Fahrerlounge',
-  sponsors: 'Sponsoren-Lounge',
-  office: 'Teamchef-Büro',
-  trophy: 'Pokalvitrine',
-  truck: 'Team-Transporter',
-  calendar: 'Rennkalender',
-  setup: 'Prüfstand',
-  tyres: 'Reifenlager',
-  pitwall: 'Boxenmauer',
-};
+/** Anzeigenamen der Stationen; werden bei jedem Zugriff in der aktuellen Sprache geliefert */
+export const STATION_LABELS: Record<StationId, string> = lazyRecord('hub.station', ['garage', 'lab', 'staff', 'lounge', 'sponsors', 'office', 'trophy', 'truck', 'calendar', 'setup', 'tyres', 'pitwall'] as const);
 
 export function isWalkable(x: number, y: number) {
   if (x >= WALK.x0 && x <= WALK.x1 && y >= WALK.y0 && y <= WALK.y1) return true;
@@ -72,46 +61,50 @@ export function buildLayout(g: GameState): Spot[] {
   const lvl = g.facility;
   const gw = [300, 380, 440, 480][lvl - 1] ?? 300;
   const out: Spot[] = [];
-  const add = (s: Omit<Spot, 'pad' | 'built'> & { padOverride?: { x: number; y: number } | null; free?: boolean }) => {
-    const { padOverride, free, ...rest } = s;
+  // Name und Untertitel stehen als Schlüssel im Wörterbuch (hub.spot.<id>.name / subKey) und werden bei jedem Zugriff übersetzt
+  const add = (s: Omit<Spot, 'pad' | 'built' | 'name' | 'sub'> & { subKey?: string; padOverride?: { x: number; y: number } | null; free?: boolean }) => {
+    const { padOverride, free, subKey, ...rest } = s;
     const built = free ? true : s.plot ? plotLevel(g, s.plot) >= 1 : true;
     const income = s.plot ? PLOTS[s.plot].kind === 'income' : false;
     let pad: Spot['pad'] = null;
     if (s.plot && (!built || income)) pad = padOverride !== undefined ? padOverride : padFor(s.rect, s.door.side, s.door);
-    out.push({ ...rest, built, pad });
+    const spot = { ...rest, built, pad } as Spot;
+    Object.defineProperty(spot, 'name', { get: () => t(`hub.spot.${s.id}.name`), enumerable: true, configurable: true });
+    if (subKey) Object.defineProperty(spot, 'sub', { get: () => t(subKey), enumerable: true, configurable: true });
+    out.push(spot);
   };
 
   const garageH = lvl >= 3 ? 230 : 210;
   const spots: (Parameters<typeof add>[0])[] = [
     {
-      id: 'workshop', plot: 'workshop', station: 'garage', name: 'Werkstatt', sub: ['Mietgarage', 'Eigene Werkstatt', 'Technikzentrum', 'Werksfabrik'][lvl - 1],
+      id: 'workshop', plot: 'workshop', station: 'garage', subKey: `hub.spot.workshop.sub${lvl}`,
       kind: lvl >= 4 ? 'factory' : 'garage', rect: { x: 190, y: 140, w: gw, h: garageH }, door: { x: 190 + gw / 2, y: 140 + garageH + 34, side: 's' },
       roof: lvl >= 4 ? '#8fa3b0' : lvl >= 2 ? '#6f7f89' : '#5b5f63', facade: '#2c3439',
     },
-    { id: 'setupLab', plot: 'setupLab', station: 'setup', name: 'Prüfstand', sub: 'Training und Abstimmung', kind: 'dyno', rect: { x: 740, y: 160, w: 210, h: 170 }, door: { x: 845, y: 364, side: 's' }, roof: '#566873', facade: '#263139' },
-    { id: 'lab', plot: 'lab', station: 'lab', name: 'Forschungslabor', kind: 'lab', rect: { x: 1020, y: 150, w: 270, h: 180 }, door: { x: 1155, y: 364, side: 's' }, roof: lvl >= 2 ? '#d7dde1' : '#9aa4aa', facade: '#30383d' },
-    { id: 'staffOffice', plot: 'staffOffice', station: 'staff', name: 'Personalbüro', kind: 'office', rect: { x: 1560, y: 160, w: 240, h: 170 }, door: { x: 1680, y: 364, side: 's' }, roof: '#7c6a58', facade: '#33302c' },
-    { id: 'pitwall', plot: 'pitwall', station: 'pitwall', name: 'Boxenmauer', sub: 'Rennstrategie', kind: 'pitwall', rect: { x: 1860, y: 170, w: 200, h: 160 }, door: { x: 1960, y: 364, side: 's' }, roof: '#3b4650', facade: '#222a30' },
-    { id: 'lounge', plot: 'lounge', station: 'lounge', name: 'Fahrerlounge', kind: 'lounge', rect: { x: 130, y: 440, w: 210, h: 200 }, door: { x: 374, y: 540, side: 'e' }, roof: '#3f5966', facade: '#25333a' },
-    { id: 'sponsorLounge', plot: 'sponsorLounge', station: 'sponsors', name: 'Sponsoren-Lounge', kind: 'lounge', rect: { x: 130, y: 700, w: 210, h: 180 }, door: { x: 374, y: 790, side: 'e' }, roof: '#5a4b6e', facade: '#2e2737' },
-    { id: 'office', station: 'office', name: 'Teamchef-Büro', kind: 'office', rect: { x: 1880, y: 430, w: 190, h: 200 }, door: { x: 1846, y: 530, side: 'w' }, roof: '#4d5f52', facade: '#26302a', free: true },
-    { id: 'kiosk', plot: 'kiosk', name: 'Fan-Kiosk', kind: 'kiosk', rect: { x: 500, y: 610, w: 120, h: 90 }, door: { x: 560, y: 582, side: 'n' }, roof: '#e9eef1', facade: '#2c3439' },
-    { id: 'fanshop', plot: 'fanshop', name: 'Fanshop', kind: 'shop', rect: { x: 905, y: 610, w: 170, h: 96 }, door: { x: 990, y: 582, side: 'n' }, roof: '#dfe5e9', facade: '#2c3439' },
-    { id: 'media', plot: 'media', name: 'Mediazentrum', kind: 'media', rect: { x: 1230, y: 590, w: 250, h: 110 }, door: { x: 1355, y: 562, side: 'n' }, roof: '#3d4f63', facade: '#222c36' },
-    { id: 'truck', station: 'truck', name: 'Team-Transporter', sub: 'Rennwochenende', kind: 'truck', rect: { x: 880, y: 900, w: 290, h: 92 }, door: { x: 1025, y: 872, side: 'n' }, roof: '#e9eef1', facade: '#202629', free: true },
-    { id: 'tireDepot', plot: 'tireDepot', station: 'tyres', name: 'Reifenlager', sub: 'Reifen und Boxenstopps', kind: 'tyres', rect: { x: 600, y: 900, w: 230, h: 92 }, door: { x: 715, y: 872, side: 'n' }, roof: '#3a4046', facade: '#1f2428' },
-    { id: 'calendar', station: 'calendar', name: 'Rennkalender', kind: 'board', rect: { x: 1190, y: 926, w: 130, h: 26 }, door: { x: 1255, y: 898, side: 'n' }, roof: '#22292d', facade: '#22292d', free: true },
-    { id: 'grandstand', plot: 'grandstand', name: 'Tribüne', kind: 'stand', rect: { x: 1350, y: 892, w: 400, h: 104 }, door: { x: 1550, y: 864, side: 'n' }, roof: '#59626b', facade: '#59626b' },
+    { id: 'setupLab', plot: 'setupLab', station: 'setup', subKey: 'hub.spot.setupLab.sub', kind: 'dyno', rect: { x: 740, y: 160, w: 210, h: 170 }, door: { x: 845, y: 364, side: 's' }, roof: '#566873', facade: '#263139' },
+    { id: 'lab', plot: 'lab', station: 'lab', kind: 'lab', rect: { x: 1020, y: 150, w: 270, h: 180 }, door: { x: 1155, y: 364, side: 's' }, roof: lvl >= 2 ? '#d7dde1' : '#9aa4aa', facade: '#30383d' },
+    { id: 'staffOffice', plot: 'staffOffice', station: 'staff', kind: 'office', rect: { x: 1560, y: 160, w: 240, h: 170 }, door: { x: 1680, y: 364, side: 's' }, roof: '#7c6a58', facade: '#33302c' },
+    { id: 'pitwall', plot: 'pitwall', station: 'pitwall', subKey: 'hub.spot.pitwall.sub', kind: 'pitwall', rect: { x: 1860, y: 170, w: 200, h: 160 }, door: { x: 1960, y: 364, side: 's' }, roof: '#3b4650', facade: '#222a30' },
+    { id: 'lounge', plot: 'lounge', station: 'lounge', kind: 'lounge', rect: { x: 130, y: 440, w: 210, h: 200 }, door: { x: 374, y: 540, side: 'e' }, roof: '#3f5966', facade: '#25333a' },
+    { id: 'sponsorLounge', plot: 'sponsorLounge', station: 'sponsors', kind: 'lounge', rect: { x: 130, y: 700, w: 210, h: 180 }, door: { x: 374, y: 790, side: 'e' }, roof: '#5a4b6e', facade: '#2e2737' },
+    { id: 'office', station: 'office', kind: 'office', rect: { x: 1880, y: 430, w: 190, h: 200 }, door: { x: 1846, y: 530, side: 'w' }, roof: '#4d5f52', facade: '#26302a', free: true },
+    { id: 'kiosk', plot: 'kiosk', kind: 'kiosk', rect: { x: 500, y: 610, w: 120, h: 90 }, door: { x: 560, y: 582, side: 'n' }, roof: '#e9eef1', facade: '#2c3439' },
+    { id: 'fanshop', plot: 'fanshop', kind: 'shop', rect: { x: 905, y: 610, w: 170, h: 96 }, door: { x: 990, y: 582, side: 'n' }, roof: '#dfe5e9', facade: '#2c3439' },
+    { id: 'media', plot: 'media', kind: 'media', rect: { x: 1230, y: 590, w: 250, h: 110 }, door: { x: 1355, y: 562, side: 'n' }, roof: '#3d4f63', facade: '#222c36' },
+    { id: 'truck', station: 'truck', subKey: 'hub.spot.truck.sub', kind: 'truck', rect: { x: 880, y: 900, w: 290, h: 92 }, door: { x: 1025, y: 872, side: 'n' }, roof: '#e9eef1', facade: '#202629', free: true },
+    { id: 'tireDepot', plot: 'tireDepot', station: 'tyres', subKey: 'hub.spot.tireDepot.sub', kind: 'tyres', rect: { x: 600, y: 900, w: 230, h: 92 }, door: { x: 715, y: 872, side: 'n' }, roof: '#3a4046', facade: '#1f2428' },
+    { id: 'calendar', station: 'calendar', kind: 'board', rect: { x: 1190, y: 926, w: 130, h: 26 }, door: { x: 1255, y: 898, side: 'n' }, roof: '#22292d', facade: '#22292d', free: true },
+    { id: 'grandstand', plot: 'grandstand', kind: 'stand', rect: { x: 1350, y: 892, w: 400, h: 104 }, door: { x: 1550, y: 864, side: 'n' }, roof: '#59626b', facade: '#59626b' },
   ];
   for (const s of spots) {
     if (s.plot && !plotVisible(g, s.plot)) continue;
     add(s);
   }
   if (g.stats.races >= 1) {
-    add({ id: 'trophy', station: 'trophy', name: 'Pokalvitrine', kind: 'trophy', rect: { x: 1880, y: 690, w: 190, h: 180 }, door: { x: 1846, y: 780, side: 'w' }, roof: '#6b5a2e', facade: '#2f2a1d', free: true });
+    add({ id: 'trophy', station: 'trophy', kind: 'trophy', rect: { x: 1880, y: 690, w: 190, h: 180 }, door: { x: 1846, y: 780, side: 'w' }, roof: '#6b5a2e', facade: '#2f2a1d', free: true });
   }
   if (lvl >= 3 && plotLevel(g, 'lab') >= 1) {
-    add({ id: 'tunnel', station: 'lab', name: 'Windkanal', kind: 'tunnel', rect: { x: 1320, y: 160, w: 170, h: 150 }, door: { x: 1405, y: 344, side: 's' }, roof: '#b8c4cb', facade: '#2b3337', free: true });
+    add({ id: 'tunnel', station: 'lab', kind: 'tunnel', rect: { x: 1320, y: 160, w: 170, h: 150 }, door: { x: 1405, y: 344, side: 's' }, roof: '#b8c4cb', facade: '#2b3337', free: true });
   }
   return out;
 }

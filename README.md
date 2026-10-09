@@ -26,6 +26,23 @@ Das Spiel besteht aus statischen Dateien und lässt sich auf GitHub Pages veröf
 
 Hinweise: Auf GitHub Pages liegt der Spielstand nur im Browser des jeweiligen Geräts (Sicherung als Datei unter *Einstellungen*). Kostenlose Konten brauchen dafür ein öffentliches Repository. Alternativ den Ordner `dist` (nach `npm run build`) auf app.netlify.com/drop ziehen.
 
+## Veröffentlichung auf Portalen (Playgama u. a.)
+
+```bash
+npm run build:portal    # Typprüfung, Build nach dist-portal/ (index.html im Hauptordner) und apex-rennstall-v1.0.0.zip
+npm run store:assets    # Cover (512x512, 1080x1920, 1920x1080) und 4 Screenshots nach store/ (braucht den Portal-Build)
+npm run check:i18n      # Sprachdateien prüfen (gleiche Schlüssel und Platzhalter in Deutsch und Englisch)
+```
+
+- **Sprachen:** Deutsch und Englisch. Alle Texte liegen in `src/i18n/de/*.ts` und `src/i18n/en/*.ts` (siehe `src/i18n/README.md`). Beim Start entscheidet die Portal-Sprache (`bridge.platform.language`), sonst die Browsersprache; nur „de“ ergibt Deutsch, sonst Englisch. Umschalter: Titelbildschirm und Einstellungen.
+- **Plattform:** Alle Aufrufe der Playgama Bridge stehen in `src/platform/platform.ts` (Adapter-Schnittstelle, ohne SDK läuft das Spiel mit einem lokalen Adapter). Das Skript wird in `index.html` von `bridge.playgama.com` geladen, die Konfiguration steht in `public/playgama-bridge-config.json`.
+- **Speichern:** `src/platform/storage.ts` lädt beim Start alle Schlüssel in einem Aufruf (`bridge.storage`) und schreibt gesammelt in einem Aufruf. `localStorage` ist die Ausweichlösung. Beim Start zeigt ein Ladebildschirm den Fortschritt.
+- **Pause und Ton:** Portal-Pause, Tab im Hintergrund und Werbung halten Rennen, Gelände, Einkommen und Audio-Kontext an. Der Ton kommt nur zurück, wenn der Spieler ihn nicht selbst ausgeschaltet hat.
+- **Werbung** (`src/platform/ads.ts`, nur über die Bridge): Zwischenwerbung nach dem Ergebnisbildschirm eines Rennens und beim Saisonwechsel, nie in einer Fahrt. Freiwillige Belohnungswerbung: „Sponsor-Bonus“ im Teamchef-Büro (10 % des Budgets, einmal pro Rennwochenende) und „Reparaturkosten halbieren“ nach einem Ausfall (bis zum nächsten Rennen). Ohne Werbung auf dem Portal erscheinen diese Knöpfe nicht.
+- **Keine Inhalte von außen:** Schriften (Saira Condensed, Barlow, Chivo Mono, SIL OFL) liegen als woff2 in `src/assets/fonts/`. Einzige externe Ressource ist das Bridge-Skript.
+- **Spielname:** zentral in `src/config.ts` (`GAME_NAME`), im Code und in Texten als Platzhalter `{game}`.
+- **Store-Texte:** `STORE_TEXT.md` (Deutsch und Englisch).
+
 ## Spielprinzip
 
 1. **Team gründen** in einem Schritt: Name und Farbe, fertig. Auto, zwei Fahrer und ein Sponsor sind schon dabei.
@@ -107,7 +124,7 @@ Auf Touch-Geräten erscheinen virtuelle Tasten.
 - Wetter wechselt während des Rennens; die Strecke wird schrittweise nass und trocknet langsam ab
 - Schäden an Motor, Getriebe, Bremsen, Frontflügel und Fahrwerk kosten Leistung und müssen nach dem Rennen bezahlt repariert werden
 - Ergebnisse bringen Punkte, Preisgeld, Sponsorboni und Reputation. Ein guter Ruf steigert die Einnahmen von Fanshop, Tribüne und Mediazentrum
-- **Progression:** Formel Nachwuchs → Continental Series → Weltmeisterschaft (Aufstieg mit Platz 1–3 der Teamwertung). In höheren Klassen verdienen die Anlagen mehr, Ausbau und Entwicklung kosten aber ebenfalls mehr
+- **Progression:** Formel Nachwuchs → Pro Series → Weltmeisterschaft (Aufstieg mit Platz 1–3 der Teamwertung). In höheren Klassen verdienen die Anlagen mehr, Ausbau und Entwicklung kosten aber ebenfalls mehr
 
 ## Projektstruktur
 
@@ -127,12 +144,15 @@ src/
   game/
     tycoon.ts              Felder, passives Einkommen, Freischaltungen, Aufträge, Teststrecken-Prämien
     manager.ts             Managerin: Postfach, Vertragswarnungen, Wissensbasis für Fragen
+    adRewards.ts           Belohnungen für freiwillig angesehene Werbung
     start.ts               Schnellstart (Auto, Fahrer, Sponsor)
     state.ts               Spielstand anlegen, Wirtschaft, Fahrer/Personal/Sponsoren, Entwicklung
     carModel.ts            Fahrzeugwerte, Kosten, Boxenstoppzeiten
     weekend.ts             Rennwochenende, Wetter, Quali-Simulation, Ergebnisauswertung, Teststrecken-Konfiguration
     season.ts, events.ts, generators.ts, save.ts
   audio/sound.ts           Synthetische Sounds über WebAudio
+  i18n/                    Sprachsystem t()/m()/tx() und Wörterbücher (de, en)
+  platform/                Portal-SDK (platform.ts), Speicher (storage.ts), Werbung (ads.ts), Pause/Ton (glue.ts)
   ui/                      React-Oberfläche (Teamgelände, Bildschirme, Rennansicht, Komponenten)
     world/                 Begehbares Teamgelände (Layout, Wegfindung, Darstellung)
 ```

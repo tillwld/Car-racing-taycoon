@@ -1,3 +1,4 @@
+import { usePlatformPaused } from '../../platform/glue';
 import { useEffect, useRef, useState } from 'react';
 import { RaceEngine, type CarSim, type PitRequest, type RaceConfig } from '../../race/engine';
 import { RaceRenderer } from '../../race/renderer';
@@ -11,6 +12,7 @@ import { COMPOUNDS, COMPOUND_KEYS, WEATHER_LABELS } from '../../data/catalog';
 import type { Compound, Settings } from '../../types';
 import { Icon, TyreBadge, WeatherIcon } from '../components/common';
 import { lapTime } from '../../game/util';
+import { fmtNum, m, t, tp, tx, useLang } from '../../i18n';
 
 export type RaceViewResult =
   | { kind: 'race'; engine: RaceEngine; rainy: boolean; playerDrove: boolean }
@@ -96,9 +98,11 @@ type Rend = {
 };
 const ALL_FEATURES = { pit: true, fuel: true, damage: true, tyres: true };
 const CAMERAS = ['chase', 'high', 'cockpit'] as const;
-const CAMERA_LABEL = { chase: 'Verfolger', high: 'Weit', cockpit: 'Cockpit' } as const;
+const cameraLabel = (c: (typeof CAMERAS)[number]) => t(`raceview.camera.${c}`);
 
-export default function RaceView({ config, humanId, focusId, title, settings, qualiLaps = 2, features = ALL_FEATURES, intro = false, sessionLabel = 'Training', onSettings, onExit, onLap }: Props) {
+export default function RaceView({ config, humanId, focusId, title, settings, qualiLaps = 2, features = ALL_FEATURES, intro = false, sessionLabel, onSettings, onExit, onLap }: Props) {
+  useLang();
+  const sessionName = sessionLabel ? tx(sessionLabel) : t('raceview.session.practice');
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const miniRef = useRef<HTMLCanvasElement>(null);
@@ -141,7 +145,7 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
       rend = new RaceRenderer3D(canvasRef.current!, eng, { camera: settings.camera, showLine: settings.showLine && !spectate, quality: settings.quality });
     } catch (err) {
       // Ohne WebGL: einfache Draufsicht
-      console.warn('3D nicht verfügbar, wechsle zur Draufsicht', err);
+      console.warn('3D not available, falling back to the top-down view', err);
       is3d = false;
       const fresh = document.createElement('canvas');
       fresh.className = canvasRef.current!.className;
@@ -179,7 +183,7 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
           if (e.carId === eng.humanId) {
             lapsRef.current.push(e.data);
             const fb = onLap?.(e.data);
-            if (fb) for (const m of fb) eng.msg(m, 'info');
+            if (fb) for (const line of fb) eng.msg(line, 'info');
           }
           break;
       }
@@ -271,6 +275,13 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
     setPaused(p);
   }
 
+  // Pause durch das Portal (Tab im Hintergrund, Werbung, Portal-Pause): das Rennen hält an und bleibt im Pausenmenü, bis der Spieler fortsetzt
+  const platformPaused = usePlatformPaused();
+  useEffect(() => {
+    if (platformPaused) setPause(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [platformPaused]);
+
   function action(a: string) {
     const eng = engRef.current;
     if (!eng) return;
@@ -300,23 +311,23 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
     const c = eng.human;
     // schon in der Boxengasse: Stopp absagen, solange das noch geht
     if (c.pit !== 'none') {
-      if (c.pit === 'stopped' || c.pit === 'exit' || !eng.cancelPitStop(c.cfg.id)) eng.msg('Zu spät: Der Stopp läuft schon.', 'info');
+      if (c.pit === 'stopped' || c.pit === 'exit' || !eng.cancelPitStop(c.cfg.id)) eng.msg(m('raceview.msg.tooLate'), 'info');
       return;
     }
     if (c.pitReq) {
       eng.requestPit(c.cfg.id, null);
       setPitOpen(false);
-      eng.msg('Boxenstopp abgesagt.', 'info');
+      eng.msg(m('raceview.msg.canceled'), 'info');
     } else {
       if (c.lapsDone >= eng.cfg.laps - 1) {
-        eng.msg('Letzte Runde – ein Boxenstopp lohnt sich nicht mehr.', 'info');
+        eng.msg(m('raceview.msg.lastLap'), 'info');
         return;
       }
       const req = defaultPit();
       eng.requestPit(c.cfg.id, req);
       setPitOpen(!!featRef.current.tyres);
-      const side = eng.pitSide > 0 ? 'rechts' : 'links';
-      eng.msg(`Box, Box! Die Boxengasse liegt ${side}. Neue Reifen: ${COMPOUNDS[req.compound].label}.`, 'warn');
+      const side = m(eng.pitSide > 0 ? 'raceview.side.right' : 'raceview.side.left');
+      eng.msg(m('raceview.msg.boxBox', { side, tyre: m(`catalog.compound.${req.compound}.label`) }), 'warn');
     }
   }
 
@@ -361,7 +372,7 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
     eng.autopilotHuman = true;
     setAutopilot(true);
     setPause(false);
-    eng.msg('Der Fahrer übernimmt.', 'info');
+    eng.msg(m('raceview.msg.handOver'), 'info');
   }
 
   function resetCar() {
@@ -384,7 +395,7 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
     const eng = engRef.current!;
     if (eng.human && !eng.human.finished) {
       eng.human.dnf = true;
-      eng.human.dnfReason = 'Aufgegeben';
+      eng.human.dnfReason = m('raceview.dnf.retired');
     }
     setPause(false);
     finish();
@@ -422,21 +433,21 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
           <>
             <div className="hud-top">
               {isRace && (
-                <div className="hud-box hud-pos" aria-label="Position">
+                <div className="hud-box hud-pos" aria-label={t('raceview.hud.position')}>
                   <b>P{h.pos}</b>
                   <span>/{h.total}</span>
                 </div>
               )}
               <div className="hud-box hud-lap">
-                <small>{isRace ? 'Runde' : config.mode === 'quali' ? 'Qualifying' : sessionLabel}</small>
+                <small>{isRace ? t('raceview.hud.lap') : config.mode === 'quali' ? t('raceview.hud.quali') : sessionName}</small>
                 <b className="num">{isRace ? `${Math.min(h.lap, h.laps)}/${h.laps}` : config.mode === 'quali' ? `${Math.min(h.timedLaps + (h.lap > 0 ? 1 : 0), qualiLaps)}/${qualiLaps}` : `${h.timedLaps}`}</b>
               </div>
               <div className="hud-box hud-times">
-                <span className="k">Akt.</span>
-                <span>{h.lap > 0 || isRace ? lapTime(h.cur) : 'Aufwärmrunde'}</span>
-                <span className="k">Letzte</span>
+                <span className="k">{t('raceview.hud.current')}</span>
+                <span>{h.lap > 0 || isRace ? lapTime(h.cur) : t('raceview.hud.warmup')}</span>
+                <span className="k">{t('raceview.hud.last')}</span>
                 <span>{lapTime(h.last)}</span>
-                <span className="k">Beste</span>
+                <span className="k">{t('raceview.hud.best')}</span>
                 <span className="purple">{lapTime(h.best)}</span>
               </div>
               <div className="hud-box" style={{ display: 'flex', alignItems: 'center', gap: 6 }} title={WEATHER_LABELS[h.weather as keyof typeof WEATHER_LABELS]}>
@@ -450,14 +461,14 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
                   <canvas ref={miniRef} className="minimap" />
                 </div>
                 <div style={{ display: 'grid', gap: 6 }}>
-                  <button type="button" className="hud-btn" aria-label="Pause" onClick={() => setPause(true)}>
+                  <button type="button" className="hud-btn" aria-label={t('raceview.hud.pause')} onClick={() => setPause(true)}>
                     <Icon name="pause" />
                   </button>
-                  <button type="button" className="hud-btn" aria-label={settings.muted ? 'Ton an' : 'Ton aus'} onClick={() => onSettings({ muted: !settings.muted })}>
+                  <button type="button" className="hud-btn" aria-label={settings.muted ? t('raceview.hud.soundOn') : t('raceview.hud.soundOff')} onClick={() => onSettings({ muted: !settings.muted })}>
                     <Icon name={settings.muted ? 'mute' : 'sound'} />
                   </button>
                   {isRace && (
-                    <button type="button" className="hud-btn" aria-label="Zeitenliste" onClick={() => setShowTower((v) => !v)}>
+                    <button type="button" className="hud-btn" aria-label={t('raceview.hud.tower')} onClick={() => setShowTower((v) => !v)}>
                       <Icon name="list" />
                     </button>
                   )}
@@ -485,14 +496,14 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
 
             {h.corner && !h.inPit && !h.pit && h.phase !== 'countdown' && (
               <div className={`corner-box ${h.corner.brakeNow ? 'brake' : h.corner.urgency > 0.4 ? 'soon' : ''}`} aria-live="off">
-                <span className="corner-arrow" style={{ transform: `scaleX(${h.corner.dir > 0 ? 1 : -1})` }} aria-label={h.corner.dir > 0 ? 'Rechtskurve' : 'Linkskurve'}>
+                <span className="corner-arrow" style={{ transform: `scaleX(${h.corner.dir > 0 ? 1 : -1})` }} aria-label={h.corner.dir > 0 ? t('raceview.corner.right') : t('raceview.corner.left')}>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M7 20V12a5 5 0 0 1 5-5h7M15 3l4 4-4 4" />
                   </svg>
                 </span>
                 <span className="corner-txt">
-                  <b>{h.corner.brakeNow ? 'BREMSEN' : h.corner.urgency > 0 ? `Bremsen in ${Math.round(h.corner.dist)} m` : `Kurve in ${Math.round(h.corner.dist)} m`}</b>
-                  <small>Kurvenspeed ca. {Math.round(h.corner.speed * 3.6)} km/h</small>
+                  <b>{h.corner.brakeNow ? t('raceview.corner.brakeNow') : h.corner.urgency > 0 ? t('raceview.corner.brakeIn', { dist: Math.round(h.corner.dist) }) : t('raceview.corner.cornerIn', { dist: Math.round(h.corner.dist) })}</b>
+                  <small>{t('raceview.corner.speed', { kmh: Math.round(h.corner.speed * 3.6) })}</small>
                 </span>
                 <span className="corner-bar"><i style={{ width: `${Math.round(h.corner.urgency * 100)}%` }} /></span>
               </div>
@@ -507,7 +518,7 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
                       <path d="M5 12h13M13 6l6 6-6 6" />
                     </svg>
                   ) : h.pit.phase === 'stop' ? (
-                    <b>{h.pit.timer.toFixed(1)}</b>
+                    <b>{fmtNum(h.pit.timer, 1)}</b>
                   ) : (
                     <b>{PIT_KMH}</b>
                   )}
@@ -515,36 +526,36 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
                 <span className="pit-txt">
                   {h.pit.phase === 'call' && (
                     <>
-                      <b>{h.pit.dist > 0 ? `BOX in ${Math.max(10, Math.round(h.pit.dist / 10) * 10)} m` : `JETZT ${h.pit.side > 0 ? 'RECHTS' : 'LINKS'} EINBIEGEN`}</b>
+                      <b>{h.pit.dist > 0 ? t('raceview.pit.boxIn', { dist: Math.max(10, Math.round(h.pit.dist / 10) * 10) }) : h.pit.side > 0 ? t('raceview.pit.turnNowRight') : t('raceview.pit.turnNowLeft')}</b>
                       <small>
                         {h.pit.dist > 0
-                          ? `Halte dich ${h.pit.side > 0 ? 'rechts' : 'links'} und fahr in die Boxengasse. Dort gilt Tempo ${PIT_KMH}.`
-                          : 'Die Boxengasse zweigt jetzt von der Strecke ab.'}
+                          ? t(h.pit.side > 0 ? 'raceview.pit.stayRight' : 'raceview.pit.stayLeft', { kmh: PIT_KMH })
+                          : t('raceview.pit.branching')}
                       </small>
                     </>
                   )}
                   {h.pit.phase === 'lane' && (
                     <>
-                      <b>Boxengasse · Limiter {PIT_KMH} km/h</b>
-                      <small>{h.pit.drive ? 'Durchfahrt ohne Stopp. Du musst nichts tun.' : h.pit.cancel ? 'Dein Team wartet an der Box. Mit P sagst du den Stopp noch ab.' : 'Dein Team wartet an der Box. Du musst nichts tun.'}</small>
+                      <b>{t('raceview.pit.lane', { kmh: PIT_KMH })}</b>
+                      <small>{h.pit.drive ? t('raceview.pit.laneDrive') : h.pit.cancel ? t('raceview.pit.laneCancel') : t('raceview.pit.laneWait')}</small>
                     </>
                   )}
                   {h.pit.phase === 'stop' && (
                     <>
-                      <b>Boxenstopp läuft</b>
-                      <small>Neue Reifen: {COMPOUNDS[h.pit.compound].label}</small>
+                      <b>{t('raceview.pit.stopping')}</b>
+                      <small>{t('raceview.pit.newTires', { tyre: COMPOUNDS[h.pit.compound].label })}</small>
                     </>
                   )}
                   {h.pit.phase === 'wait' && (
                     <>
-                      <b>Ausfahrt rot</b>
-                      <small>Verkehr auf der Strecke – gleich geht es weiter.</small>
+                      <b>{t('raceview.pit.exitRed')}</b>
+                      <small>{t('raceview.pit.exitRedHint')}</small>
                     </>
                   )}
                   {h.pit.phase === 'exit' && (
                     <>
-                      <b>Ausfahrt frei</b>
-                      <small>Limiter endet an der Linie. Dann Gas geben und auf den Verkehr achten.</small>
+                      <b>{t('raceview.pit.exitFree')}</b>
+                      <small>{t('raceview.pit.exitFreeHint')}</small>
                     </>
                   )}
                 </span>
@@ -553,38 +564,38 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
             )}
 
             <div className="radio" aria-live="polite">
-              {h.msgs.map((m, i) => (
-                <div key={`${m.t}-${i}`} className={m.kind}>
-                  {m.text}
+              {h.msgs.map((msg, i) => (
+                <div key={`${msg.t}-${i}`} className={msg.kind}>
+                  {tx(msg.text)}
                 </div>
               ))}
             </div>
 
             {showIntro && !autopilot && canDrive && !h.pit && (
               <div className="intro-box" role="note">
-                <b>So fährst du</b>
+                <b>{t('raceview.intro.title')}</b>
                 {touch ? (
                   <div className="intro-keys">
-                    <span>◀ ▶ links unten: Lenken</span>
-                    <span>▲ grün: Gas</span>
-                    <span>▼ rot: Bremse</span>
-                    <span>⚡ Boost</span>
+                    <span>{t('raceview.intro.touchSteer')}</span>
+                    <span>{t('raceview.intro.touchGas')}</span>
+                    <span>{t('raceview.intro.touchBrake')}</span>
+                    <span>{t('raceview.intro.touchBoost')}</span>
                   </div>
                 ) : (
                   <div className="intro-keys">
-                    <span><kbd>{K('up')}</kbd> Gas</span>
-                    <span><kbd>{K('down')}</kbd> Bremse</span>
-                    <span><kbd>{K('left')}</kbd> <kbd>{K('right')}</kbd> Lenken</span>
-                    <span><kbd>{K('boost')}</kbd> Boost</span>
-                    <span><kbd>{K('camera')}</kbd> Kamera</span>
+                    <span><kbd>{K('up')}</kbd> {t('raceview.key.gas')}</span>
+                    <span><kbd>{K('down')}</kbd> {t('raceview.key.brake')}</span>
+                    <span><kbd>{K('left')}</kbd> <kbd>{K('right')}</kbd> {t('raceview.key.steer')}</span>
+                    <span><kbd>{K('boost')}</kbd> {t('raceview.key.boost')}</span>
+                    <span><kbd>{K('camera')}</kbd> {t('raceview.key.camera')}</span>
                   </div>
                 )}
-                <small>Bremse vor den Kurven. An der Strecke stehen Schilder mit 3 – 2 – 1 Strichen (150, 100, 50 m).</small>
+                <small>{t('raceview.intro.hint')}</small>
               </div>
             )}
 
             {h.phase === 'countdown' && (
-              <div className="lights" aria-label="Startampel">
+              <div className="lights" aria-label={t('raceview.lights')}>
                 {[0, 1, 2, 3, 4].map((i) => (
                   <i key={i} className={i < h.lights ? 'on' : ''} />
                 ))}
@@ -592,17 +603,17 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
             )}
             {h.phase === 'countdown' && isRace && canDrive && !autopilot && !spectate && (
               <div className={`start-hint ${h.early ? 'bad' : ''}`}>
-                {h.early ? 'Noch nicht! Gas erst, wenn die Lichter ausgehen' : 'Gas geben, sobald die Lichter ausgehen'}
+                {h.early ? t('raceview.start.early') : t('raceview.start.wait')}
               </div>
             )}
             {h.start && <div className={`center-msg start-msg ${h.start.tone}`}>{h.start.text}</div>}
             {h.wrongWay && canDrive && !autopilot ? (
-              <div className="center-msg" style={{ fontSize: 26, top: '22%', color: 'var(--bad)' }}>Falsche Richtung · R = zurücksetzen</div>
+              <div className="center-msg" style={{ fontSize: 26, top: '22%', color: 'var(--bad)' }}>{t('raceview.wrongWay')}</div>
             ) : (
-              h.offTrack && !h.inPit && canDrive && !autopilot && <div className="center-msg" style={{ fontSize: 24, top: '22%', color: 'var(--warn)' }}>Neben der Strecke</div>
+              h.offTrack && !h.inPit && canDrive && !autopilot && <div className="center-msg" style={{ fontSize: 24, top: '22%', color: 'var(--warn)' }}>{t('raceview.offTrack')}</div>
             )}
-            {done && isRace && <div className="center-msg">Zielflagge</div>}
-            {done && config.mode === 'quali' && <div className="center-msg" style={{ fontSize: 'clamp(28px,6vw,52px)' }}>Bestzeit {lapTime(h.best)}</div>}
+            {done && isRace && <div className="center-msg">{t('raceview.flag')}</div>}
+            {done && config.mode === 'quali' && <div className="center-msg" style={{ fontSize: 'clamp(28px,6vw,52px)' }}>{t('raceview.bestTime', { time: lapTime(h.best) })}</div>}
             {h.delta !== null && !isRace && h.lap > 0 && (
               <div className="center-msg" style={{ fontSize: 20, top: '18%', color: h.delta <= 0 ? 'var(--good)' : 'var(--bad)' }}>
                 {h.delta <= 0 ? '−' : '+'}
@@ -622,7 +633,7 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
               </div>
               <div className="hud-box car-state">
                 <div className="line">
-                  <span className="k">Reifen</span>
+                  <span className="k">{t('raceview.car.tires')}</span>
                   <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                     <TyreBadge c={h.tyre.c} sm />
                     <span className="bar" style={{ flex: 1 }}>
@@ -633,29 +644,29 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
                 </div>
                 {isRace && features.fuel && (
                   <div className="line">
-                    <span className="k">Sprit</span>
+                    <span className="k">{t('raceview.car.fuel')}</span>
                     <span className="bar">
                       <i style={{ width: `${Math.min(100, (h.fuelLaps / Math.max(1, h.laps)) * 100)}%`, background: h.fuelLaps < h.laps - h.lap + 0.6 ? 'var(--bad)' : 'var(--info)' }} />
                     </span>
-                    <span className="v">{h.fuelLaps.toFixed(1)}</span>
+                    <span className="v">{fmtNum(h.fuelLaps, 1)}</span>
                   </div>
                 )}
                 <div className="line">
-                  <span className="k">Boost</span>
+                  <span className="k">{t('raceview.car.boost')}</span>
                   <span className="bar">
                     <i style={{ width: `${h.ers * 100}%`, background: 'var(--info)' }} />
                   </span>
-                  <span className="v" title="Windschatten">{h.slip > 0.2 ? 'WS' : ''}</span>
+                  <span className="v" title={t('raceview.car.slipstream')}>{h.slip > 0.2 ? t('raceview.car.slipstreamShort') : ''}</span>
                 </div>
                 {features.damage && (
                   <div className="line">
-                    <span className="k">Schaden</span>
-                    <span className="dmg" title="Motor, Getriebe, Bremsen, Frontflügel, Fahrwerk">
+                    <span className="k">{t('raceview.car.damage')}</span>
+                    <span className="dmg" title={t('raceview.car.damageParts')}>
                       {h.damage.map((d, i) => (
                         <i key={i} style={{ background: d > 0.6 ? 'var(--bad)' : d > 0.25 ? 'var(--warn)' : 'var(--good)' }} />
                       ))}
                     </span>
-                    <span className="v">{h.pitReq ? 'BOX' : ''}</span>
+                    <span className="v">{h.pitReq ? t('raceview.car.pit') : ''}</span>
                   </div>
                 )}
               </div>
@@ -664,8 +675,8 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
             {pitOpen && h.pitReq && !h.inPit && features.tyres && (
               <div className="hud-box pit-panel">
                 <div className="row between">
-                  <b className="display" style={{ fontSize: 18 }}>Boxenstopp geplant</b>
-                  <button type="button" className="hud-btn" style={{ width: 32, height: 32 }} aria-label="Schließen" onClick={() => setPitOpen(false)}>
+                  <b className="display" style={{ fontSize: 18 }}>{t('raceview.panel.title')}</b>
+                  <button type="button" className="hud-btn" style={{ width: 32, height: 32 }} aria-label={t('raceview.panel.close')} onClick={() => setPitOpen(false)}>
                     <Icon name="close" />
                   </button>
                 </div>
@@ -679,13 +690,13 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
                   ))}
                 </div>
                 <label className="row" style={{ fontSize: 14 }}>
-                  <input type="checkbox" checked={h.pitReq.repair} onChange={(e) => updatePit({ repair: e.target.checked })} /> Schäden reparieren {!touch && <kbd>{K('pitRepair')}</kbd>}
+                  <input type="checkbox" checked={h.pitReq.repair} onChange={(e) => updatePit({ repair: e.target.checked })} /> {t('raceview.panel.repair')} {!touch && <kbd>{K('pitRepair')}</kbd>}
                 </label>
                 <label className="row" style={{ fontSize: 14 }}>
-                  <input type="checkbox" checked={h.pitReq.refuel} onChange={(e) => updatePit({ refuel: e.target.checked })} /> Nachtanken {!touch && <kbd>{K('pitFuel')}</kbd>}
+                  <input type="checkbox" checked={h.pitReq.refuel} onChange={(e) => updatePit({ refuel: e.target.checked })} /> {t('raceview.panel.refuel')} {!touch && <kbd>{K('pitFuel')}</kbd>}
                 </label>
                 <button type="button" className="btn danger sm" onClick={togglePit}>
-                  Stopp absagen
+                  {t('raceview.panel.cancel')}
                 </button>
               </div>
             )}
@@ -700,12 +711,12 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
                   ))}
                   {!spectate && canDrive && (
                     <button type="button" className="tbtn small" style={{ width: 'auto', padding: '0 12px' }} onClick={takeBack}>
-                      Selbst fahren
+                      {t('raceview.driveSelf')}
                     </button>
                   )}
                   {isRace && (
                     <button type="button" className="tbtn small" style={{ width: 'auto', padding: '0 12px', background: 'var(--team)', color: 'var(--team-ink)' }} onClick={finish}>
-                      Ergebnis
+                      {t('raceview.results')}
                     </button>
                   )}
                 </div>
@@ -714,10 +725,10 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
               touch && (
                 <div className="touch">
                   <div className="tz l">
-                    <button type="button" className="tbtn" aria-label="Links lenken" {...touchHandlers('tLeft')}>
+                    <button type="button" className="tbtn" aria-label={t('raceview.touch.left')} {...touchHandlers('tLeft')}>
                       <Icon name="left" />
                     </button>
-                    <button type="button" className="tbtn" aria-label="Rechts lenken" {...touchHandlers('tRight')}>
+                    <button type="button" className="tbtn" aria-label={t('raceview.touch.right')} {...touchHandlers('tRight')}>
                       <Icon name="right" />
                     </button>
                   </div>
@@ -725,17 +736,17 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
                     <div style={{ display: 'grid', gap: 10 }}>
                       {isRace && (
                         <button type="button" className={`tbtn small ${h.pitReq ? 'on' : ''}`} onClick={togglePit}>
-                          BOX
+                          {t('raceview.car.pit')}
                         </button>
                       )}
-                      <button type="button" className="tbtn small boost" aria-label="Boost" {...touchHandlers('tBoost')}>
+                      <button type="button" className="tbtn small boost" aria-label={t('raceview.car.boost')} {...touchHandlers('tBoost')}>
                         <Icon name="bolt" />
                       </button>
                     </div>
-                    <button type="button" className="tbtn brake" aria-label="Bremse" {...touchHandlers('tDown')}>
+                    <button type="button" className="tbtn brake" aria-label={t('raceview.touch.brake')} {...touchHandlers('tDown')}>
                       <Icon name="down" />
                     </button>
-                    <button type="button" className="tbtn gas" aria-label="Gas" {...touchHandlers('tUp')}>
+                    <button type="button" className="tbtn gas" aria-label={t('raceview.touch.gas')} {...touchHandlers('tUp')}>
                       <Icon name="up" />
                     </button>
                   </div>
@@ -745,7 +756,7 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
             {done && (
               <div style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, 0)', display: 'grid', gap: 8 }}>
                 <button type="button" className="btn primary big" onClick={finish}>
-                  {isRace ? 'Zum Ergebnis' : 'Session beenden'}
+                  {isRace ? t('raceview.toResults') : t('raceview.endSession')}
                 </button>
               </div>
             )}
@@ -757,68 +768,68 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
         <div className="pause-menu">
           <div className="modal">
             <div>
-              <div className="eyebrow">{title}</div>
-              <h2>Pause</h2>
+              <div className="eyebrow">{tx(title)}</div>
+              <h2>{t('raceview.pause.title')}</h2>
             </div>
             <div className="stack">
               <button type="button" className="btn primary big" onClick={() => setPause(false)}>
-                Weiterfahren
+                {t('raceview.pause.resume')}
               </button>
               {canDrive && !autopilot && (
                 <button type="button" className="btn block" onClick={resetCar}>
-                  Auto auf die Strecke zurücksetzen
+                  {t('raceview.pause.reset')}
                 </button>
               )}
               {isRace && canDrive && !autopilot && (
                 <button type="button" className="btn block" onClick={handOver}>
-                  Fahrer übernehmen lassen
+                  {t('raceview.pause.handOver')}
                 </button>
               )}
               {isRace && (
                 <button type="button" className="btn block" onClick={() => { setPause(false); finish(); }}>
-                  Rest des Rennens simulieren
+                  {t('raceview.pause.simRest')}
                 </button>
               )}
               {!isRace && (
                 <button type="button" className="btn block" onClick={() => { setPause(false); finish(); }}>
-                  Session beenden{config.mode === 'quali' ? ' (beste Runde zählt)' : ''}
+                  {config.mode === 'quali' ? t('raceview.pause.endQuali') : t('raceview.pause.endSession')}
                 </button>
               )}
               {isRace && canDrive && (
                 <button type="button" className="btn danger block" onClick={retire}>
-                  Aufgeben
+                  {t('raceview.pause.retire')}
                 </button>
               )}
               {!isRace && (
                 <button type="button" className="btn ghost block" onClick={() => onExit({ kind: 'abort' })}>
-                  Abbrechen ohne Wertung
+                  {t('raceview.pause.abort')}
                 </button>
               )}
             </div>
             <div className="sep" />
             <div className="row">
               <button type="button" className="btn sm" onClick={cycleCamera}>
-                Kamera: {CAMERA_LABEL[settings.camera]}
+                {t('raceview.pause.camera', { name: cameraLabel(settings.camera) })}
               </button>
               <button type="button" className="btn sm" onClick={() => onSettings({ cornerHints: !settings.cornerHints })}>
-                Kurvenhilfe: {settings.cornerHints ? 'An' : 'Aus'}
+                {t('raceview.pause.cornerHints', { state: settings.cornerHints ? t('raceview.on') : t('raceview.off') })}
               </button>
               <button type="button" className="btn sm" onClick={() => onSettings({ showLine: !settings.showLine })}>
-                Ideallinie: {settings.showLine ? 'An' : 'Aus'}
+                {t('raceview.pause.racingLine', { state: settings.showLine ? t('raceview.on') : t('raceview.off') })}
               </button>
             </div>
             <div className="keys">
-              <kbd>{K('up')}</kbd><span>Gas</span>
-              <kbd>{K('down')}</kbd><span>Bremse (im Stand: rückwärts)</span>
-              <kbd>{K('left')} · {K('right')}</kbd><span>Lenken</span>
-              <kbd>{K('boost')}</kbd><span>Boost (Energie für Überholmanöver)</span>
-              {isRace && (<><kbd>{K('pit')}</kbd><span>Boxenstopp anfordern oder absagen</span></>)}
-              {isRace && features.tyres && (<><kbd>1 – 5 · {K('pitFuel')} · {K('pitRepair')}</kbd><span>im Boxenmenü: Reifen · Nachtanken · Reparatur</span></>)}
-              <kbd>{K('reset')}</kbd><span>Auto auf die Strecke zurücksetzen</span>
-              <kbd>{K('camera')}</kbd><span>Kamera wechseln (Verfolger · Weit · Cockpit)</span>
-              <kbd>{K('line')} · {K('tower')}</kbd><span>Ideallinie · Zeitenliste</span>
-              <kbd>Tastenbelegung</kbd><span>änderbar unter Einstellungen → Fahren</span>
-              <kbd>Esc</kbd><span>Pause</span>
+              <kbd>{K('up')}</kbd><span>{t('raceview.key.gas')}</span>
+              <kbd>{K('down')}</kbd><span>{t('raceview.keys.brake')}</span>
+              <kbd>{K('left')} · {K('right')}</kbd><span>{t('raceview.key.steer')}</span>
+              <kbd>{K('boost')}</kbd><span>{t('raceview.keys.boost')}</span>
+              {isRace && (<><kbd>{K('pit')}</kbd><span>{t('raceview.keys.pit')}</span></>)}
+              {isRace && features.tyres && (<><kbd>1 – 5 · {K('pitFuel')} · {K('pitRepair')}</kbd><span>{t('raceview.keys.pitMenu')}</span></>)}
+              <kbd>{K('reset')}</kbd><span>{t('raceview.pause.reset')}</span>
+              <kbd>{K('camera')}</kbd><span>{t('raceview.keys.camera')}</span>
+              <kbd>{K('line')} · {K('tower')}</kbd><span>{t('raceview.keys.lineTower')}</span>
+              <kbd>{t('raceview.keys.bindings')}</kbd><span>{t('raceview.keys.bindingsHint')}</span>
+              <kbd>Esc</kbd><span>{t('raceview.pause.title')}</span>
             </div>
           </div>
         </div>
@@ -826,7 +837,7 @@ export default function RaceView({ config, humanId, focusId, title, settings, qu
       {ff && (
         <div className="sim-progress">
           <div className="modal" style={{ textAlign: 'center' }}>
-            <h3>Rennen wird zu Ende gefahren …</h3>
+            <h3>{t('raceview.finishing')}</h3>
           </div>
         </div>
       )}
@@ -910,15 +921,14 @@ function pitHud(eng: RaceEngine, c: CarSim): PitHud | null {
 /** Rückmeldung zum Start: Reaktionszeit nach „Lichter aus“ oder Fehlstart */
 function startBanner(eng: RaceEngine, focus: CarSim): Hud['start'] {
   if (eng.cfg.mode !== 'race' || focus !== eng.human || eng.autopilotHuman || eng.phase !== 'racing') return null;
-  if (eng.startJump) return eng.time < 3.4 ? { text: 'Fehlstart! Zu früh aufs Gas', tone: 'bad' } : null;
+  if (eng.startJump) return eng.time < 3.4 ? { text: t('raceview.start.falseStart'), tone: 'bad' } : null;
   const r = eng.humanReaction;
-  if (r === null) return eng.time > 0.6 && eng.time < 6 ? { text: 'Gas geben!', tone: 'warn' } : null;
+  if (r === null) return eng.time > 0.6 && eng.time < 6 ? { text: t('raceview.start.go'), tone: 'warn' } : null;
   if (eng.time - r > 2.6) return null;
-  const t = `${r.toFixed(2).replace('.', ',')} s`;
-  if (r < 0.25) return { text: `Perfekter Start · ${t}`, tone: 'good' };
-  if (r < 0.4) return { text: `Guter Start · ${t}`, tone: 'good' };
-  if (r < 0.7) return { text: `Später Start · ${t}`, tone: 'warn' };
-  return { text: `Verschlafen · ${t}`, tone: 'bad' };
+  if (r < 0.25) return { text: t('raceview.start.perfect', { r }), tone: 'good' };
+  if (r < 0.4) return { text: t('raceview.start.good', { r }), tone: 'good' };
+  if (r < 0.7) return { text: t('raceview.start.late', { r }), tone: 'warn' };
+  return { text: t('raceview.start.asleep', { r }), tone: 'bad' };
 }
 
 function makeHud(eng: RaceEngine, focus: CarSim, hints: boolean): Hud {
@@ -929,17 +939,17 @@ function makeHud(eng: RaceEngine, focus: CarSim, hints: boolean): Hud {
   const lapNow = Math.max(0, Math.floor(focus.dist / L)) + 1;
   const tower = order.map((c, i) => {
     let gap = '';
-    if (c.dnf) gap = 'AUS';
-    else if (c.pit !== 'none') gap = 'BOX';
-    else if (i === 0) gap = c.finished ? 'ZIEL' : 'Führt';
+    if (c.dnf) gap = t('raceview.tower.out');
+    else if (c.pit !== 'none') gap = t('raceview.tower.pit');
+    else if (i === 0) gap = c.finished ? t('raceview.tower.finish') : t('raceview.tower.leader');
     else {
       const lapsBehind = Math.floor((leader.dist - c.dist) / L);
-      if (lapsBehind >= 1 && !leader.finished) gap = `+${lapsBehind} Rd`;
+      if (lapsBehind >= 1 && !leader.finished) gap = tp('raceview.tower.lapsBehind', lapsBehind);
       else gap = `+${eng.gapTo(c, leader).toFixed(1)}`;
     }
     return { id: c.cfg.id, pos: i + 1, short: c.cfg.short, color: c.cfg.color, gap, me: c === focus, pit: c.pit !== 'none', out: c.dnf };
   });
-  const msgs = eng.messages.filter((m) => eng.time - m.t < 5 && m.t <= eng.time && (!m.carId || m.carId === focus.cfg.id || m.kind !== 'info')).slice(-3);
+  const msgs = eng.messages.filter((x) => eng.time - x.t < 5 && x.t <= eng.time && (!x.carId || x.carId === focus.cfg.id || x.kind !== 'info')).slice(-3);
   const fuelPerLap = 1 / eng.cfg.laps;
   const cur = eng.phase === 'racing' && focus.lapsDone >= 0 && focus.dist >= 0 ? eng.time - focus.lapStart : 0;
   let delta: number | null = null;
@@ -966,7 +976,7 @@ function makeHud(eng: RaceEngine, focus: CarSim, hints: boolean): Hud {
     weather: eng.weatherNow,
     wetness: eng.wetness,
     tower,
-    msgs: msgs.map((m) => ({ text: m.text, kind: m.kind, t: m.t })),
+    msgs: msgs.map((x) => ({ text: x.text, kind: x.kind, t: x.t })),
     lights: Math.min(5, Math.floor(eng.time / 0.8)),
     start: startBanner(eng, focus),
     early: eng.phase === 'countdown' && focus === eng.human && !eng.autopilotHuman && eng.humanInput.throttle > 0.3,

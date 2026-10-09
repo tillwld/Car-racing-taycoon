@@ -1,14 +1,16 @@
+import { locList } from '../i18n';
 import { LAYOUTS } from './trackLayouts';
 import type { TrackDef } from '../types';
 
-export const TRACKS: TrackDef[] = [
+// Streckennamen, Kürzel und Ländernamen sind Eigennamen. Die Beschreibung steht in src/i18n/{de,en}/data.ts (`tracks.<id>.description`).
+const TRACK_DATA: TrackDef[] = [
   {
     id: 'porto',
     name: 'Porto Lumière',
     short: 'POR',
     country: 'Monacien',
     flag: ['#d81b3b', '#ffffff'],
-    description: 'Enger Hafenkurs mit Leitplanken direkt an der Ideallinie. Überholen ist fast unmöglich, das Qualifying entscheidet.',
+    description: '',
     vertices: LAYOUTS.porto,
     rotate: 0,
     halfWidth: 5.5,
@@ -28,7 +30,7 @@ export const TRACKS: TrackDef[] = [
     short: 'SIL',
     country: 'Albion',
     flag: ['#1d3c8f', '#e4e8f0'],
-    description: 'Ehemaliger Flugplatz mit schnellen, fließenden Bögen. Viel Abtrieb zahlt sich aus, das Wetter ist launisch.',
+    description: '',
     vertices: LAYOUTS.silverwood,
     rotate: 0,
     halfWidth: 7,
@@ -48,7 +50,7 @@ export const TRACKS: TrackDef[] = [
     short: 'VEL',
     country: 'Italvia',
     flag: ['#118b4a', '#d22630'],
-    description: 'Tempel der Geschwindigkeit: lange Vollgaspassagen und harte Bremszonen vor engen Schikanen. Windschatten ist alles.',
+    description: '',
     vertices: LAYOUTS.vela,
     rotate: 0,
     halfWidth: 7,
@@ -64,11 +66,11 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'eifel',
-    name: 'Eifelring Nord',
+    name: 'Waldring Nord',
     short: 'EIF',
-    country: 'Germanien',
+    country: 'Rhenia',
     flag: ['#1a1a1a', '#e2b007'],
-    description: 'Moderner Mittelgebirgskurs mit enger Haarnadel nach Start und Ziel, technischer Schikane und kühlen Temperaturen.',
+    description: '',
     vertices: LAYOUTS.eifel,
     rotate: 0,
     halfWidth: 6.5,
@@ -84,11 +86,11 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'fagnes',
-    name: 'Circuit des Fagnes',
+    name: 'Circuit des Ardoises',
     short: 'FAG',
     country: 'Belgarde',
     flag: ['#f2c400', '#d0102b'],
-    description: 'Langer Waldkurs mit Haarnadel, schnellen Wechselkurven und einer Schikane vor Start und Ziel. Regen kommt oft plötzlich.',
+    description: '',
     vertices: LAYOUTS.fagnes,
     rotate: 0,
     halfWidth: 7,
@@ -104,11 +106,11 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'montcada',
-    name: 'Circuit de Montcada',
+    name: 'Circuit de Montvalet',
     short: 'MON',
-    country: 'Catalonia',
+    country: 'Iberra',
     flag: ['#f6c700', '#c8102e'],
-    description: 'Klassische Teststrecke mit vielen mittelschnellen Kurven. Der Asphalt frisst Reifen, Strategie entscheidet.',
+    description: '',
     vertices: LAYOUTS.montcada,
     rotate: 0,
     halfWidth: 7,
@@ -124,11 +126,11 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'kirin',
-    name: 'Kirin Hills',
+    name: 'Sakura Hills',
     short: 'KIR',
     country: 'Nihonia',
     flag: ['#ffffff', '#c8102e'],
-    description: 'Technischer Hügelkurs mit fordernder S-Kurven-Sektion, Haarnadel und Schikane. Belohnt Präzision und eine gute Abstimmung.',
+    description: '',
     vertices: LAYOUTS.kirin,
     rotate: 0,
     halfWidth: 6.5,
@@ -144,4 +146,6 @@ export const TRACKS: TrackDef[] = [
   },
 ];
 
+/** Strecken: description ist ein übersetzter Getter */
+export const TRACKS: TrackDef[] = locList('tracks', TRACK_DATA, ['description']);
 export const TRACK_BY_ID: Record<string, TrackDef> = Object.fromEntries(TRACKS.map((t) => [t.id, t]));

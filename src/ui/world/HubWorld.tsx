@@ -8,6 +8,7 @@ import { PLOTS, plotAvailable, plotReqText, plotCost, plotLevel, plotMaxLevel, p
 import { money } from '../../game/util';
 import { sound } from '../../audio/sound';
 import { keyLabel, labelsFor, reverseKeys } from '../../race/keys';
+import { t, tx, useLang } from '../../i18n';
 
 interface Props {
   game: GameState;
@@ -86,7 +87,39 @@ function circleRect(px: number, py: number, r: Rect, rad: number) {
   return dx * dx + dy * dy < rad * rad ? { cx, cy, dx, dy } : null;
 }
 
+/** Hinweistext mit Tastenplatzhaltern {keys} und {interact}: die Tasten erscheinen als <kbd> */
+function hintWithKeys(keys: Record<string, string>) {
+  const parts = t('world.hint.keys', { keys: '[[keys]]', interact: '[[interact]]' }).split(/\[\[(\w+)\]\]/);
+  return parts.map((p, i) => (i % 2 ? <kbd key={i} className="hub-kbd">{keys[p]}</kbd> : p));
+}
+
+/** Anzeigename eines Platzes: aus den (übersetzten) Stations- und Anlagennamen, damit er bei Sprachwechsel mitwechselt */
+function spotName(s: Spot): string {
+  if (s.id === 'tunnel') return t('world.windTunnel');
+  if (s.station) return STATION_LABELS[s.station];
+  if (s.plot) return PLOTS[s.plot].name;
+  return s.name;
+}
+
+/** Untertitel eines Platzes (ohne Stufe/Ertrag der Einnahmeanlagen) */
+function spotSub(s: Spot, g: GameState): string {
+  switch (s.id) {
+    case 'workshop':
+      switch (Math.max(1, Math.min(4, g.facility))) {
+        case 1: return t('world.sub.workshop1');
+        case 2: return t('world.sub.workshop2');
+        case 3: return t('world.sub.workshop3');
+        default: return t('world.sub.workshop4');
+      }
+    case 'setupLab': return t('world.sub.setupLab');
+    case 'pitwall': return t('world.sub.pitwall');
+    case 'tireDepot': return t('world.sub.tireDepot');
+    default: return '';
+  }
+}
+
 export default function HubWorld({ game, paused, hidden = false, alerts, objective, onOpen, onBuy, onFreeDrive, walkTo }: Props) {
+  useLang(); // Oberfläche neu zeichnen, wenn die Sprache wechselt (die Canvas-Texte werden bei jedem Bild übersetzt)
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const key = spotKey(game);
@@ -116,7 +149,7 @@ export default function HubWorld({ game, paused, hidden = false, alerts, objecti
   const player = useRef({ x: START.x, y: START.y, dir: -Math.PI / 2, phase: 0, moving: false, path: [] as { x: number; y: number }[], arrive: null as StationId | null });
   const keys = useRef<Record<string, boolean>>({});
   const cam = useRef({ x: START.x, y: START.y, zoom: 1, user: 1 });
-  const [near, setNear] = useState<{ station: StationId; sx: number; sy: number; name: string } | null>(null);
+  const [near, setNear] = useState<{ station: StationId; sx: number; sy: number; tunnel: boolean } | null>(null);
   const nearRef = useRef<StationId | null>(null);
   const [hint, setHint] = useState(true);
   const padState = useRef<Record<string, { dwell: number; lock: boolean }>>({});
@@ -170,20 +203,20 @@ export default function HubWorld({ game, paused, hidden = false, alerts, objecti
       const lvl = plotLevel(g, s.plot);
       out.push({
         id: s.plot, x: s.pad.x, y: s.pad.y, name: PLOTS[s.plot].name, cost, level: lvl, max: plotMaxLevel(s.plot),
-        avail: plotAvailable(g, s.plot), afford: g.money >= cost, req: plotReqText(g, s.plot),
+        avail: plotAvailable(g, s.plot), afford: g.money >= cost, req: tx(plotReqText(g, s.plot)),
         gain: PLOTS[s.plot].yields ? plotYield(g, s.plot, lvl + 1) - plotYield(g, s.plot, lvl) : 0, above: s.door.side === 'n', kind: 'plot',
       });
     }
-    out.push({ id: 'track', x: TEST_PAD.x, y: TEST_PAD.y, name: 'Teststrecke', cost: 0, level: 0, max: 0, avail: true, afford: true, req: '', gain: 0, above: true, kind: 'track' });
+    out.push({ id: 'track', x: TEST_PAD.x, y: TEST_PAD.y, name: t('world.testTrack'), cost: 0, level: 0, max: 0, avail: true, afford: true, req: '', gain: 0, above: true, kind: 'track' });
     return out;
   }
 
   // Auftrag von außen: zu einem Ziel laufen
   useEffect(() => {
     if (!walkTo) return;
-    const t = walkTo.target;
-    if (t === 'track') return goTo(TEST_PAD.x, TEST_PAD.y, null);
-    const s = layoutRef.current.find((x) => x.id === t || x.plot === t);
+    const target = walkTo.target;
+    if (target === 'track') return goTo(TEST_PAD.x, TEST_PAD.y, null);
+    const s = layoutRef.current.find((x) => x.id === target || x.plot === target);
     if (!s) return;
     if (s.built && s.station) goTo(s.door.x, s.door.y, s.station);
     else if (s.pad) goTo(s.pad.x, s.pad.y, null);
@@ -308,12 +341,12 @@ export default function HubWorld({ game, paused, hidden = false, alerts, objecti
     });
     const lounge = at('lounge');
     const d2 = g.drivers[team.driverIds[1]];
-    if (d2 && lounge) out.push({ x: lounge.door.x + 50, y: lounge.door.y + 60, dir: Math.PI, color: team.color, accent: team.color2, label: `${d2.name} · Fahrer 2`, station: 'lounge', helmet: true, phase: 3 });
+    if (d2 && lounge) out.push({ x: lounge.door.x + 50, y: lounge.door.y + 60, dir: Math.PI, color: team.color, accent: team.color2, label: t('world.npc.driver2', { name: d2.name }), station: 'lounge', helmet: true, phase: 3 });
     if (lounge) {
       for (const id of g.academy.slice(0, 3)) {
         const d = g.drivers[id];
         if (!d) continue;
-        out.push({ x: lounge.door.x + 40 + out.length * 6, y: lounge.door.y - 70 + (out.length % 3) * 24, dir: 0, color: '#8fa0aa', accent: team.color, label: `${d.name} · Akademie`, station: 'lounge', helmet: true, phase: out.length });
+        out.push({ x: lounge.door.x + 40 + out.length * 6, y: lounge.door.y - 70 + (out.length % 3) * 24, dir: 0, color: '#8fa0aa', accent: team.color, label: t('world.npc.academy', { name: d.name }), station: 'lounge', helmet: true, phase: out.length });
       }
     }
     return out;
@@ -445,7 +478,7 @@ export default function HubWorld({ game, paused, hidden = false, alerts, objecti
           if (s) {
             const cx = s.rect.x + s.rect.w / 2, cy = s.rect.y + s.rect.h / 2;
             burst(cx, cy, was === 0 ? 70 : 36, ['#f2b53d', '#3fd08f', '#5fb8ff', '#ff6a8a', '#ffffff']);
-            floatText(cx, s.rect.y - 20, was === 0 ? 'Gebaut!' : `Stufe ${now}`, '#f2b53d', 26);
+            floatText(cx, s.rect.y - 20, was === 0 ? t('world.fx.built') : t('world.fx.level', { n: now }), '#f2b53d', 26);
           }
         }
         prevPlots.current[id] = now;
@@ -459,7 +492,7 @@ export default function HubWorld({ game, paused, hidden = false, alerts, objecti
           for (const s of layoutRef.current) {
             if (!s.plot || !s.built || !PLOTS[s.plot].yields) continue;
             const amount = Math.round(plotYield(g, s.plot) * 2.4);
-            if (amount > 0) floatText(s.rect.x + s.rect.w / 2 + (Math.random() - 0.5) * 30, s.rect.y + s.rect.h * 0.3, `+${amount.toLocaleString('de-DE')} €`, '#6ee7a8', 15);
+            if (amount > 0) floatText(s.rect.x + s.rect.w / 2 + (Math.random() - 0.5) * 30, s.rect.y + s.rect.h * 0.3, `+${money(amount)}`, '#6ee7a8', 15);
           }
         }
       }
@@ -491,7 +524,7 @@ export default function HubWorld({ game, paused, hidden = false, alerts, objecti
             const c = cam.current;
             const sx = (best.door.x - c.x) * c.zoom + w / 2;
             const sy = (best.door.y - c.y) * c.zoom + h / 2;
-            setNear({ station: best.station!, sx, sy, name: best.id === 'tunnel' ? 'Windkanal' : STATION_LABELS[best.station!] });
+            setNear({ station: best.station!, sx, sy, tunnel: best.id === 'tunnel' });
           } else setNear(null);
         }
       }
@@ -608,7 +641,7 @@ export default function HubWorld({ game, paused, hidden = false, alerts, objecti
   }
 
   // ---------- Zeichnen ----------
-  function draw(ctx: CanvasRenderingContext2D, w: number, h: number, dpr: number, t: number, trackCars: { x: number; speed: number; lane: number }[]) {
+  function draw(ctx: CanvasRenderingContext2D, w: number, h: number, dpr: number, time: number, trackCars: { x: number; speed: number; lane: number }[]) {
     const g = gameRef.current;
     const c = cam.current;
     const p = player.current;
@@ -673,7 +706,7 @@ export default function HubWorld({ game, paused, hidden = false, alerts, objecti
       ctx.font = '700 15px "Saira Condensed", "Arial Narrow", sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(s ? s.name.toUpperCase() : 'WERBEFLÄCHE FREI', bx + 100, FENCE_Y - 2);
+      ctx.fillText(s ? s.name.toUpperCase() : t('world.banner.free').toUpperCase(), bx + 100, FENCE_Y - 2);
     }
 
     // Fahrerlager (Asphalt) samt Zugang zur Teststrecke
@@ -741,10 +774,10 @@ export default function HubWorld({ game, paused, hidden = false, alerts, objecti
     // Bauland und Gebäude
     const pads = padsNow();
     for (const s of L) {
-      if (!s.built) drawLot(ctx, s, pads.find((pd) => pd.id === s.plot), t, g);
+      if (!s.built) drawLot(ctx, s, pads.find((pd) => pd.id === s.plot), time, g);
       else {
         const born = s.plot ? builtAt.current[s.plot] : undefined;
-        const age = born === undefined ? 9 : t - born;
+        const age = born === undefined ? 9 : time - born;
         if (age < 0.7) {
           const k = easeOutBack(Math.min(1, age / 0.7));
           ctx.save();
@@ -752,9 +785,9 @@ export default function HubWorld({ game, paused, hidden = false, alerts, objecti
           ctx.translate(cx, cy);
           ctx.scale(0.6 + 0.4 * k, 0.6 + 0.4 * k);
           ctx.translate(-cx, -cy);
-          drawBuilding(ctx, s, g, t);
+          drawBuilding(ctx, s, g, time);
           ctx.restore();
-        } else drawBuilding(ctx, s, g, t);
+        } else drawBuilding(ctx, s, g, time);
       }
     }
 
@@ -769,7 +802,7 @@ export default function HubWorld({ game, paused, hidden = false, alerts, objecti
       }
       ctx.fillStyle = 'rgba(242,181,61,0.12)';
       ctx.fillRect(bx, by, bw, bh);
-      const ang = Math.sin(t * 0.4) * 0.6 - 2.2;
+      const ang = Math.sin(time * 0.4) * 0.6 - 2.2;
       ctx.strokeStyle = '#f2b53d';
       ctx.lineWidth = 7;
       ctx.beginPath();
@@ -778,7 +811,7 @@ export default function HubWorld({ game, paused, hidden = false, alerts, objecti
       ctx.stroke();
       ctx.fillStyle = '#1b1f23';
       ctx.fillRect(bx + bw / 2 - 12, by + bh / 2 - 12, 24, 24);
-      label(ctx, bx + bw / 2, by + bh + 16, 'Ausbau läuft', false);
+      label(ctx, bx + bw / 2, by + bh + 16, t('world.construction'), false);
     }
 
     // Geparktes Teamauto vor der Werkstatt
@@ -788,7 +821,7 @@ export default function HubWorld({ game, paused, hidden = false, alerts, objecti
       const cond = Object.values(g.car.condition).reduce((a, v) => a + v, 0) / 5;
       if (cond < 0.75) {
         for (let i = 0; i < 4; i++) {
-          const ph = (t * 0.6 + i / 4) % 1;
+          const ph = (time * 0.6 + i / 4) % 1;
           ctx.fillStyle = `rgba(180,185,190,${0.35 * (1 - ph)})`;
           ctx.beginPath();
           ctx.arc(cx - 20 + ph * 10, cy - 10 - ph * 50, 10 + ph * 16, 0, TAU);
@@ -798,7 +831,7 @@ export default function HubWorld({ game, paused, hidden = false, alerts, objecti
     }
 
     // Kaufflächen
-    for (const pd of pads) drawPad(ctx, pd, t, padState.current[pd.id]?.dwell ?? 0, g);
+    for (const pd of pads) drawPad(ctx, pd, time, padState.current[pd.id]?.dwell ?? 0, g);
 
     // Figuren nach y sortiert
     const people: { y: number; draw: () => void }[] = [];
@@ -806,8 +839,8 @@ export default function HubWorld({ game, paused, hidden = false, alerts, objecti
       people.push({
         y: n.y,
         draw: () => {
-          const look = n.dir + Math.sin(t * 0.7 + n.phase) * 0.6;
-          drawPerson(ctx, n.x, n.y + Math.sin(t * 2 + n.phase) * 0.6, look, 0, n.color, n.accent, !!n.helmet, false);
+          const look = n.dir + Math.sin(time * 0.7 + n.phase) * 0.6;
+          drawPerson(ctx, n.x, n.y + Math.sin(time * 2 + n.phase) * 0.6, look, 0, n.color, n.accent, !!n.helmet, false);
           if (Math.hypot(n.x - p.x, n.y - p.y) < 90) label(ctx, n.x, n.y - 34, n.label, false);
         },
       });
@@ -866,7 +899,7 @@ export default function HubWorld({ game, paused, hidden = false, alerts, objecti
       const sy = b.door.side === 's' ? b.rect.y - 54 : b.kind === 'truck' || b.kind === 'board' || b.door.side === 'n' ? b.rect.y - 50 : b.rect.y - 16;
       if (!b.station || !al[b.station]) continue;
       if (objRef.current === b.id) continue;
-      const pulse = 1 + Math.sin(t * 5) * 0.08;
+      const pulse = 1 + Math.sin(time * 5) * 0.08;
       ctx.save();
       ctx.translate(sx, sy - 6);
       ctx.scale(pulse, pulse);
@@ -906,7 +939,7 @@ export default function HubWorld({ game, paused, hidden = false, alerts, objecti
         }
       }
       if (ok) {
-        const bob = Math.sin(t * 4) * 7;
+        const bob = Math.sin(time * 4) * 7;
         ctx.fillStyle = '#f2b53d';
         ctx.strokeStyle = 'rgba(10,15,18,0.8)';
         ctx.lineWidth = 3;
@@ -923,6 +956,7 @@ export default function HubWorld({ game, paused, hidden = false, alerts, objecti
   }
 
   const nearAlert = near ? alerts[near.station] : undefined;
+  const nearName = near ? (near.tunnel ? t('world.windTunnel') : STATION_LABELS[near.station]) : '';
   const isTouch = useMemo(() => {
     try {
       return window.matchMedia('(pointer: coarse)').matches;
@@ -932,11 +966,11 @@ export default function HubWorld({ game, paused, hidden = false, alerts, objecti
   }, []);
   return (
     <div className="hub" ref={wrapRef}>
-      <canvas ref={canvasRef} className="hub-canvas" onPointerDown={onPointer} onWheel={onWheel} aria-label="Teamgelände" />
+      <canvas ref={canvasRef} className="hub-canvas" onPointerDown={onPointer} onWheel={onWheel} aria-label={t('world.aria.grounds')} />
       {near && !paused && (
         <div className="hub-prompt" style={{ left: near.sx, top: near.sy }}>
           <button type="button" className="btn primary" onClick={() => onOpen(near.station)}>
-            {!isTouch && <kbd className="hub-kbd">E</kbd>} {near.name} betreten
+            {!isTouch && <kbd className="hub-kbd">E</kbd>} {t('world.enter', { name: nearName })}
           </button>
           {nearAlert && <span className="hub-alert">{nearAlert}</span>}
         </div>
@@ -944,9 +978,9 @@ export default function HubWorld({ game, paused, hidden = false, alerts, objecti
       {hint && !paused && (
         <div className="hub-hint">
           {isTouch ? (
-            <>Tippe auf den Boden, um hinzulaufen. Stell dich auf leuchtende Flächen, um zu bauen.</>
+            <>{t('world.hint.touch')}</>
           ) : (
-            <>Laufen mit <kbd className="hub-kbd">{keyHint}</kbd>, oder klicke auf ein Ziel. Stell dich auf leuchtende Flächen, um zu bauen. Gebäude betrittst du mit <kbd className="hub-kbd">{labelsFor(reverseKeys(game.settings.keys).map, 'interact').split(' / ')[0]}</kbd>.</>
+            <>{hintWithKeys({ keys: keyHint, interact: labelsFor(reverseKeys(game.settings.keys).map, 'interact').split(' / ')[0] })}</>
           )}
         </div>
       )}
@@ -998,11 +1032,11 @@ function lockIcon(ctx: CanvasRenderingContext2D, x: number, y: number, s: number
 }
 
 /** Leuchtende Kauffläche: grün = kaufbar, gelb = es fehlt Geld, grau = noch gesperrt */
-function drawPad(ctx: CanvasRenderingContext2D, pd: PadInfo, t: number, dwell: number, g: GameState) {
+function drawPad(ctx: CanvasRenderingContext2D, pd: PadInfo, time: number, dwell: number, g: GameState) {
   const isTrack = pd.kind === 'track';
   const ready = pd.avail && pd.afford;
   const col = isTrack ? '#5fb8ff' : !pd.avail ? '#6a7b85' : pd.afford ? '#3fd08f' : '#f2b53d';
-  const pulse = 1 + Math.sin(t * 4 + pd.x) * (ready ? 0.07 : 0.025);
+  const pulse = 1 + Math.sin(time * 4 + pd.x) * (ready ? 0.07 : 0.025);
   ctx.save();
   ctx.translate(pd.x, pd.y);
   // Bodenplatte
@@ -1065,15 +1099,17 @@ function drawPad(ctx: CanvasRenderingContext2D, pd: PadInfo, t: number, dwell: n
   ctx.restore();
 
   // Preisschild
-  const title = isTrack ? 'TESTSTRECKE' : pd.name.toUpperCase();
+  const title = pd.name.toUpperCase();
   const sub = isTrack
-    ? 'Freie Fahrt · Runden bringen Geld'
+    ? t('world.pad.trackSub')
     : !pd.avail
       ? pd.req
       : pd.level === 0
         ? money(pd.cost)
-        : `Stufe ${pd.level + 1} · ${money(pd.cost)}${pd.gain > 0 ? ` · +${Math.round(pd.gain)} €/s` : ''}`;
-  const sub2 = !isTrack && pd.avail && !pd.afford ? `Es fehlen ${money(pd.cost - g.money)}` : '';
+        : pd.gain > 0
+          ? t('world.pad.levelGain', { lvl: pd.level + 1, cost: pd.cost, gain: Math.round(pd.gain) })
+          : t('world.pad.level', { lvl: pd.level + 1, cost: pd.cost });
+  const sub2 = !isTrack && pd.avail && !pd.afford ? t('world.pad.missing', { v: pd.cost - g.money }) : '';
   ctx.font = '700 17px "Saira Condensed", "Arial Narrow", sans-serif';
   const w1 = ctx.measureText(title).width;
   ctx.font = '600 13px "Barlow", "Segoe UI", sans-serif';
@@ -1102,7 +1138,7 @@ function drawPad(ctx: CanvasRenderingContext2D, pd: PadInfo, t: number, dwell: n
 }
 
 /** Bauland: gestrichelter Rahmen, Absperrband und ein Schatten des späteren Gebäudes */
-function drawLot(ctx: CanvasRenderingContext2D, s: Spot, pd: PadInfo | undefined, t: number, g: GameState) {
+function drawLot(ctx: CanvasRenderingContext2D, s: Spot, pd: PadInfo | undefined, time: number, g: GameState) {
   const { x, y, w, h } = s.rect;
   const locked = pd ? !pd.avail : true;
   ctx.fillStyle = locked ? 'rgba(20,28,32,0.35)' : 'rgba(95,184,255,0.1)';
@@ -1110,7 +1146,7 @@ function drawLot(ctx: CanvasRenderingContext2D, s: Spot, pd: PadInfo | undefined
   ctx.strokeStyle = locked ? 'rgba(139,156,166,0.5)' : 'rgba(95,184,255,0.75)';
   ctx.lineWidth = 3;
   ctx.setLineDash([14, 10]);
-  ctx.lineDashOffset = -t * 12;
+  ctx.lineDashOffset = -time * 12;
   ctx.strokeRect(x + 1.5, y + 1.5, w - 3, h - 3);
   ctx.setLineDash([]);
   ctx.lineDashOffset = 0;
@@ -1134,12 +1170,12 @@ function drawLot(ctx: CanvasRenderingContext2D, s: Spot, pd: PadInfo | undefined
   ctx.textBaseline = 'middle';
   ctx.font = '800 ' + (w > 150 ? 24 : 18) + 'px "Saira Condensed", "Arial Narrow", sans-serif';
   ctx.fillStyle = locked ? 'rgba(200,212,219,0.55)' : 'rgba(230,237,240,0.9)';
-  ctx.fillText(s.name.toUpperCase(), cx, cy - (locked ? 6 : 0));
+  ctx.fillText(spotName(s).toUpperCase(), cx, cy - (locked ? 6 : 0));
   if (locked) lockIcon(ctx, cx, cy + 18, 0.9, 'rgba(200,212,219,0.55)');
   void g;
 }
 
-function drawBuilding(ctx: CanvasRenderingContext2D, b: Spot, g: GameState, t: number) {
+function drawBuilding(ctx: CanvasRenderingContext2D, b: Spot, g: GameState, time: number) {
   const { x, y, w, h } = b.rect;
   ctx.fillStyle = 'rgba(0,0,0,0.3)';
   if (b.kind === 'tunnel') {
@@ -1173,7 +1209,7 @@ function drawBuilding(ctx: CanvasRenderingContext2D, b: Spot, g: GameState, t: n
     ctx.fillRect(x + w - 16, y + 16, 8, h - 32);
     ctx.fillStyle = g.team.color;
     ctx.fillRect(x + w - 60, y + 10, 30, h - 20);
-    signPlate(ctx, b.door.x, y - 26, 'Team-Transporter', 'Zum Rennwochenende');
+    signPlate(ctx, b.door.x, y - 26, spotName(b), t('world.sub.truck'));
     return;
   }
   if (b.kind === 'board') {
@@ -1187,11 +1223,11 @@ function drawBuilding(ctx: CanvasRenderingContext2D, b: Spot, g: GameState, t: n
     ctx.fillStyle = '#6b767c';
     ctx.fillRect(x + 10, y + h, 6, 16);
     ctx.fillRect(x + w - 16, y + h, 6, 16);
-    signPlate(ctx, b.door.x, y - 22, 'Rennkalender', `Runde ${Math.min(g.round + 1, g.calendar.length)}/${g.calendar.length}`);
+    signPlate(ctx, b.door.x, y - 22, spotName(b), t('world.sub.round', { n: Math.min(g.round + 1, g.calendar.length), total: g.calendar.length }));
     return;
   }
   if (b.kind === 'stand') {
-    drawStand(ctx, b, g, t);
+    drawStand(ctx, b, g, time);
     return;
   }
   const grad = ctx.createLinearGradient(x, y, x + w, y + h);
@@ -1209,7 +1245,7 @@ function drawBuilding(ctx: CanvasRenderingContext2D, b: Spot, g: GameState, t: n
       ctx.lineTo(x + (w * i) / 7, y + h - 6);
       ctx.stroke();
     }
-    signPlate(ctx, x + w / 2, y + h + 26, 'Windkanal', '');
+    signPlate(ctx, x + w / 2, y + h + 26, spotName(b), '');
     return;
   }
   ctx.fillRect(x, y, w, h);
@@ -1246,7 +1282,7 @@ function drawBuilding(ctx: CanvasRenderingContext2D, b: Spot, g: GameState, t: n
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
     ctx.fillRect(x + w - 60, y + 90, 36, 30);
     if (g.developments.some((d) => d.kind === 'research')) {
-      ctx.fillStyle = `rgba(95,184,255,${0.5 + Math.sin(t * 5) * 0.4})`;
+      ctx.fillStyle = `rgba(95,184,255,${0.5 + Math.sin(time * 5) * 0.4})`;
       ctx.beginPath();
       ctx.arc(x + 30, y + 110, 8, 0, TAU);
       ctx.fill();
@@ -1308,7 +1344,7 @@ function drawBuilding(ctx: CanvasRenderingContext2D, b: Spot, g: GameState, t: n
     ctx.font = '800 20px "Saira Condensed", "Arial Narrow", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('FANSHOP', x + w / 2, y + 22);
+    ctx.fillText(PLOTS.fanshop.name.toUpperCase(), x + w / 2, y + 22);
     ctx.fillStyle = 'rgba(120,190,230,0.55)';
     for (let i = 0; i < 4; i++) ctx.fillRect(x + 14 + i * ((w - 28) / 4), y + 44, (w - 28) / 4 - 10, 26);
     for (let i = 0; i < Math.min(lvl, 5); i++) {
@@ -1329,7 +1365,7 @@ function drawBuilding(ctx: CanvasRenderingContext2D, b: Spot, g: GameState, t: n
     ctx.fill();
     ctx.fillStyle = '#9aa5ac';
     ctx.fillRect(x + 40, y + 80, 8, 70);
-    ctx.fillStyle = `rgba(255,70,70,${0.4 + Math.sin(t * 4) * 0.4})`;
+    ctx.fillStyle = `rgba(255,70,70,${0.4 + Math.sin(time * 4) * 0.4})`;
     ctx.beginPath();
     ctx.arc(x + 44, y + 78, 6, 0, TAU);
     ctx.fill();
@@ -1352,7 +1388,7 @@ function drawBuilding(ctx: CanvasRenderingContext2D, b: Spot, g: GameState, t: n
       ctx.fillStyle = '#9aa5ac';
     }
     drawTopCar(ctx, x + w / 2, y + 59, 0, g.team.color, g.team.color2, 15);
-    ctx.fillStyle = `rgba(63,208,143,${0.5 + Math.sin(t * 3) * 0.4})`;
+    ctx.fillStyle = `rgba(63,208,143,${0.5 + Math.sin(time * 3) * 0.4})`;
     ctx.beginPath();
     ctx.arc(x + w - 24, y + 24, 6, 0, TAU);
     ctx.fill();
@@ -1378,7 +1414,7 @@ function drawBuilding(ctx: CanvasRenderingContext2D, b: Spot, g: GameState, t: n
     for (let i = 0; i < 3; i++) {
       ctx.fillStyle = '#10181c';
       ctx.fillRect(x + 16 + i * 60, y + 20, 50, 34);
-      ctx.fillStyle = `rgba(95,184,255,${0.45 + Math.sin(t * 2 + i) * 0.2})`;
+      ctx.fillStyle = `rgba(95,184,255,${0.45 + Math.sin(time * 2 + i) * 0.2})`;
       ctx.fillRect(x + 20 + i * 60, y + 24, 42, 26);
     }
     ctx.fillStyle = 'rgba(255,255,255,0.1)';
@@ -1418,14 +1454,14 @@ function drawBuilding(ctx: CanvasRenderingContext2D, b: Spot, g: GameState, t: n
   }
 
   // Schild; Einnahmeanlagen zeigen Stufe und Ertrag
-  let sub = b.sub ?? '';
-  if (b.plot && PLOTS[b.plot].yields) sub = `Stufe ${lvl}/${plotMaxLevel(b.plot)} · +${Math.round(plotYield(g, b.plot))} €/s`;
+  let sub = spotSub(b, g);
+  if (b.plot && PLOTS[b.plot].yields) sub = t('world.sub.level', { lvl, max: plotMaxLevel(b.plot), gain: Math.round(plotYield(g, b.plot)) });
   const sx = b.door.side === 'e' || b.door.side === 'w' ? x + w / 2 : b.door.x;
   const sy = b.door.side === 's' ? y - 22 : b.door.side === 'n' ? y + h + 24 : y + h / 2 + 68;
-  signPlate(ctx, sx, sy, b.name, sub);
+  signPlate(ctx, sx, sy, spotName(b), sub);
 }
 
-function drawStand(ctx: CanvasRenderingContext2D, b: Spot, g: GameState, t: number) {
+function drawStand(ctx: CanvasRenderingContext2D, b: Spot, g: GameState, time: number) {
   const { x, y, w, h } = b.rect;
   const lvl = b.plot ? plotLevel(g, b.plot) : 1;
   ctx.fillStyle = '#59626b';
@@ -1441,7 +1477,7 @@ function drawStand(ctx: CanvasRenderingContext2D, b: Spot, g: GameState, t: numb
     for (let i = 0; i < (w - 16) / 9; i++) {
       if (rnd() > density) continue;
       ctx.fillStyle = cols[Math.floor(rnd() * cols.length)];
-      const bob = Math.sin(t * 3 + i * 1.3 + r) * 1.2;
+      const bob = Math.sin(time * 3 + i * 1.3 + r) * 1.2;
       ctx.beginPath();
       ctx.arc(x + 12 + i * 9, y + 4 + r * rh + rh / 2 + bob, 3.2, 0, TAU);
       ctx.fill();
@@ -1455,8 +1491,8 @@ function drawStand(ctx: CanvasRenderingContext2D, b: Spot, g: GameState, t: numb
   ctx.fillRect(x, y + h - 14, w, 14);
   ctx.fillStyle = g.team.color;
   ctx.fillRect(x, y + h - 4, w, 4);
-  const sub = b.plot ? `Stufe ${lvl}/${plotMaxLevel(b.plot)} · +${Math.round(plotYield(g, b.plot!))} €/s` : '';
-  signPlate(ctx, x + w / 2, y - 22, b.name, sub);
+  const sub = b.plot ? t('world.sub.level', { lvl, max: plotMaxLevel(b.plot), gain: Math.round(plotYield(g, b.plot)) }) : '';
+  signPlate(ctx, x + w / 2, y - 22, spotName(b), sub);
 }
 
 function signPlate(ctx: CanvasRenderingContext2D, x: number, y: number, title: string, sub: string) {

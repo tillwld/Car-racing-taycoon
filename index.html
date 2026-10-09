@@ -1,16 +1,25 @@
 <!doctype html>
-<html lang="de">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
     <meta name="theme-color" content="#0e1418" />
-    <title>Apex Rennstall</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600;700&family=Chivo+Mono:wght@400;600&display=swap" rel="stylesheet" />
+    <title>%GAME_NAME%</title>
+    <!-- Portal-SDK (Playgama Bridge): die einzige Ressource von außen. Fehlt sie (offline, lokal), startet das Spiel ohne. -->
+    <script src="https://bridge.playgama.com/v2/stable/playgama-bridge.js"></script>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0e1418; }
+      #boot-splash { position: fixed; inset: 0; display: grid; place-content: center; justify-items: center; gap: 18px; background: #0e1418; color: #e8eef2; font-family: 'Saira Condensed', 'Arial Narrow', system-ui, sans-serif; }
+      #boot-splash .b-name { font-size: clamp(30px, 8vw, 54px); font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; text-align: center; padding: 0 16px; }
+      #boot-splash .b-bar { width: min(320px, 70vw); height: 8px; border-radius: 99px; background: #1d2a31; overflow: hidden; }
+      #boot-splash .b-bar i { display: block; height: 100%; width: 12%; background: #ff5a2d; border-radius: 99px; animation: b-run 1.4s ease-in-out infinite; }
+      @keyframes b-run { 0% { transform: translateX(-100%); } 100% { transform: translateX(900%); } }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="boot-splash"><div class="b-name">%GAME_NAME%</div><div class="b-bar"><i></i></div></div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

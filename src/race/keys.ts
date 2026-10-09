@@ -1,23 +1,43 @@
 // Tastenbelegung: Standardtasten, Anzeigenamen und das Zusammenführen mit eigenen Einstellungen.
+import { t } from '../i18n';
+
 export type KeyAction = 'up' | 'down' | 'left' | 'right' | 'boost' | 'pit' | 'pitFuel' | 'pitRepair' | 'camera' | 'line' | 'tower' | 'reset' | 'mute' | 'interact';
 export type KeyMap = Record<KeyAction, string[]>;
 
-export const KEY_ACTIONS: { id: KeyAction; label: string; group: 'Fahren' | 'Boxenstopp' | 'Ansicht' | 'Gelände' }[] = [
-  { id: 'up', label: 'Gas (im Gelände: nach oben)', group: 'Fahren' },
-  { id: 'down', label: 'Bremse, rückwärts (nach unten)', group: 'Fahren' },
-  { id: 'left', label: 'Links lenken', group: 'Fahren' },
-  { id: 'right', label: 'Rechts lenken', group: 'Fahren' },
-  { id: 'boost', label: 'Boost', group: 'Fahren' },
-  { id: 'reset', label: 'Auf die Strecke zurücksetzen', group: 'Fahren' },
-  { id: 'pit', label: 'Boxenstopp anfordern oder absagen', group: 'Boxenstopp' },
-  { id: 'pitFuel', label: 'Im Boxenmenü: Nachtanken', group: 'Boxenstopp' },
-  { id: 'pitRepair', label: 'Im Boxenmenü: Reparatur', group: 'Boxenstopp' },
-  { id: 'camera', label: 'Kamera wechseln', group: 'Ansicht' },
-  { id: 'line', label: 'Ideallinie ein/aus', group: 'Ansicht' },
-  { id: 'tower', label: 'Zeitenliste ein/aus', group: 'Ansicht' },
-  { id: 'mute', label: 'Ton ein/aus', group: 'Ansicht' },
-  { id: 'interact', label: 'Gebäude betreten', group: 'Gelände' },
+/** Bereiche der Tastenbelegung (Ids; die Anzeigenamen stehen im Wörterbuch unter keys.group.*) */
+export type KeyGroup = 'drive' | 'pit' | 'view' | 'grounds';
+export const KEY_GROUPS: readonly KeyGroup[] = ['drive', 'pit', 'view', 'grounds'];
+
+/** Anzeigename eines Bereichs in der aktuellen Sprache */
+export function keyGroupLabel(g: KeyGroup): string {
+  return t(`keys.group.${g}`);
+}
+
+const ACTION_DEFS: [KeyAction, KeyGroup][] = [
+  ['up', 'drive'],
+  ['down', 'drive'],
+  ['left', 'drive'],
+  ['right', 'drive'],
+  ['boost', 'drive'],
+  ['reset', 'drive'],
+  ['pit', 'pit'],
+  ['pitFuel', 'pit'],
+  ['pitRepair', 'pit'],
+  ['camera', 'view'],
+  ['line', 'view'],
+  ['tower', 'view'],
+  ['mute', 'view'],
+  ['interact', 'grounds'],
 ];
+
+/** Alle belegbaren Aktionen; `label` wird bei jedem Zugriff in der aktuellen Sprache geliefert (Wörterbuch keys.action.*) */
+export const KEY_ACTIONS: { id: KeyAction; label: string; group: KeyGroup }[] = ACTION_DEFS.map(([id, group]) => ({
+  id,
+  group,
+  get label() {
+    return t(`keys.action.${id}`);
+  },
+}));
 
 export const DEFAULT_KEYS: KeyMap = {
   up: ['KeyW', 'ArrowUp'],
@@ -58,21 +78,13 @@ export function reverseKeys(custom?: Partial<Record<string, string[]>> | null): 
   return cached;
 }
 
+/** Tastennamen, die in jeder Sprache gleich sind (Symbole) */
 const NAMES: Record<string, string> = {
-  Space: 'Leertaste',
   ArrowUp: '↑',
   ArrowDown: '↓',
   ArrowLeft: '←',
   ArrowRight: '→',
-  ShiftLeft: 'Shift links',
-  ShiftRight: 'Shift rechts',
-  ControlLeft: 'Strg links',
-  ControlRight: 'Strg rechts',
-  AltLeft: 'Alt links',
-  AltRight: 'Alt rechts',
-  Enter: 'Eingabe',
   Tab: 'Tab',
-  Backspace: 'Rück',
   Escape: 'Esc',
   Comma: ',',
   Period: '.',
@@ -87,11 +99,26 @@ const NAMES: Record<string, string> = {
   Backquote: '^',
 };
 
+/** Tastennamen, die je nach Sprache anders heißen (Wörterbuch keys.name.*) */
+const NAME_KEYS: Record<string, string> = {
+  Space: 'keys.name.space',
+  ShiftLeft: 'keys.name.shiftLeft',
+  ShiftRight: 'keys.name.shiftRight',
+  ControlLeft: 'keys.name.ctrlLeft',
+  ControlRight: 'keys.name.ctrlRight',
+  AltLeft: 'keys.name.altLeft',
+  AltRight: 'keys.name.altRight',
+  Enter: 'keys.name.enter',
+  Backspace: 'keys.name.backspace',
+};
+
+/** Anzeigename einer Taste in der aktuellen Sprache (nur beim Rendern oder in Funktionen aufrufen) */
 export function keyLabel(code: string): string {
+  if (NAME_KEYS[code]) return t(NAME_KEYS[code]);
   if (NAMES[code]) return NAMES[code];
   if (code.startsWith('Key')) return code.slice(3);
   if (code.startsWith('Digit')) return code.slice(5);
-  if (code.startsWith('Numpad')) return 'Num ' + code.slice(6);
+  if (code.startsWith('Numpad')) return t('keys.name.numpad', { key: code.slice(6) });
   return code;
 }
 
@@ -100,9 +127,9 @@ export function labelsFor(map: KeyMap, a: KeyAction): string {
   return map[a].map(keyLabel).join(' / ');
 }
 
-/** Tasten, die nie belegt werden dürfen: Esc pausiert, 1–5 wählen im Boxenmenü die Reifen */
+/** Tasten, die nie belegt werden dürfen: Esc pausiert, 1–5 wählen im Boxenmenü die Reifen. Liefert den Grund als Text in der aktuellen Sprache. */
 export function reservedKey(code: string): string | null {
-  if (code === 'Escape') return 'Esc pausiert immer';
-  if (/^Digit[1-5]$/.test(code)) return '1 bis 5 wählen im Boxenmenü die Reifen';
+  if (code === 'Escape') return t('keys.reserved.escape');
+  if (/^Digit[1-5]$/.test(code)) return t('keys.reserved.digits');
   return null;
 }

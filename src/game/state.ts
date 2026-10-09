@@ -1,6 +1,7 @@
-import { ACHIEVEMENTS, CHASSIS_BY_ID, CONDITION_COST, FACILITY, PARTS, RESEARCH_BY_ID, TIERS } from '../data/catalog';
+import { ACHIEVEMENTS, CHASSIS_BY_ID, CONDITION_COST, FACILITY, RESEARCH_BY_ID, TIERS } from '../data/catalog';
 import { TRACKS } from '../data/tracks';
-import type { ConditionKey, Driver, GameState, LedgerEntry, LogoKind, PartKey, Region, Settings, Sponsor, Staff, Stats } from '../types';
+import { m, t } from '../i18n';
+import type { Chassis, ConditionKey, Driver, GameState, LedgerEntry, LogoKind, PartKey, Region, Settings, Sponsor, Staff, Stats } from '../types';
 import { devSlots, partCost, partTime, researchCost, researchTime, staffSkill } from './carModel';
 import { driverSalary, genId, makeAITeams, makeDriver, makeDriverMarket, makeSponsorOffers, makeStaffMarket, staffSalary } from './generators';
 import { shuffle, clamp } from './util';
@@ -47,7 +48,7 @@ export const emptyStats = (): Stats => ({
 });
 
 export function makeCalendar(): string[] {
-  const rest = shuffle(TRACKS.map((t) => t.id).filter((id) => id !== 'eifel'));
+  const rest = shuffle(TRACKS.map((trk) => trk.id).filter((id) => id !== 'eifel'));
   return ['eifel', ...rest];
 }
 
@@ -124,7 +125,7 @@ export function createGame(setup: TeamSetup, settings?: Settings): GameState {
     flags: {},
   };
   s.sponsorOffers = makeSponsorOffers(s);
-  news(s, `Willkommen in der ${TIERS[tier].name}! ${setup.name} startet in die erste Saison.`, 'neutral');
+  news(s, m('state.news.welcome', { tier: cat('tier', tier), team: setup.name }), 'neutral');
   return s;
 }
 
@@ -143,6 +144,12 @@ export function book(s: GameState, label: string, amount: number, category: Ledg
   if (s.money >= 15_000_000) unlock(s, 'multi_millionaire');
 }
 
+/** Katalogname (z. B. Bauteil, Erfolg, Rennklasse) als m()-Text, damit er mit der Sprache wechselt. Schlüssel: catalog.<tabelle>.<id>.<feld> */
+export const cat = (table: string, id: string | number, field = 'name') => m(`catalog.${table}.${id}.${field}`);
+
+/** Chassisnamen sind Eigennamen; nur "Marlin F-N (gebraucht)" hat eine Übersetzung (catalog.chassis.mirage.name) */
+export const chassisName = (c: Chassis): string => (c.id === 'mirage' ? cat('chassis', c.id) : c.name);
+
 export function news(s: GameState, text: string, tone: 'good' | 'bad' | 'neutral' = 'neutral') {
   s.news.unshift({ id: `n${s.nextId++}`, text, tone, season: s.season, round: s.round });
   if (s.news.length > 40) s.news.length = 40;
@@ -154,7 +161,7 @@ export function unlock(s: GameState, id: string) {
   s.achievements[id] = Date.now();
   const a = ACHIEVEMENTS.find((x) => x.id === id);
   if (a) {
-    news(s, `Erfolg freigeschaltet: ${a.name}`, 'good');
+    news(s, m('state.news.achievement', { name: cat('achievement', id) }), 'good');
     newAchievements.push(a.name);
   }
 }
@@ -164,57 +171,59 @@ export const playerDrivers = (s: GameState) => s.team.driverIds.map((id) => s.dr
 // ---------- Fahrzeug ----------
 export function buyChassis(s: GameState, id: string): string | null {
   const ch = CHASSIS_BY_ID[id];
-  if (!ch) return 'Unbekanntes Chassis.';
-  if (ch.tier > s.tier) return 'Dieses Chassis ist erst in einer höheren Rennklasse verfügbar.';
-  if (s.car.chassisId === id) return 'Dieses Chassis fährst du bereits.';
+  if (!ch) return t('state.err.unknownChassis');
+  if (ch.tier > s.tier) return t('state.err.chassisTier');
+  if (s.car.chassisId === id) return t('state.err.chassisOwned');
   const old = CHASSIS_BY_ID[s.car.chassisId];
   const resale = old ? Math.round(old.price * 0.4) : 0;
-  if (s.money + resale < ch.price) return 'Nicht genug Budget.';
-  if (old) book(s, `Verkauf ${old.name}`, resale, 'purchase');
-  book(s, `Kauf ${ch.name}`, -ch.price, 'purchase');
+  if (s.money + resale < ch.price) return t('state.err.budget');
+  if (old) book(s, m('state.ledger.sellChassis', { name: chassisName(old) }), resale, 'purchase');
+  book(s, m('state.ledger.buyChassis', { name: chassisName(ch) }), -ch.price, 'purchase');
   s.car.chassisId = id;
   s.car.condition = { engine: 1, gearbox: 1, brakes: 1, frontWing: 1, suspension: 1 };
-  news(s, `Neues Chassis: ${ch.name}`, 'good');
+  news(s, m('state.news.newChassis', { name: chassisName(ch) }), 'good');
   return null;
 }
 
 export function startPartUpgrade(s: GameState, part: PartKey): string | null {
   const cap = FACILITY[s.facility - 1].partCap;
-  if (s.car.parts[part] >= cap) return `Maximale Stufe für deine ${FACILITY[s.facility - 1].name} erreicht. Baue die Fabrik aus.`;
-  if (s.developments.some((d) => d.kind === 'part' && d.target === part)) return 'Dieses Bauteil wird bereits entwickelt.';
+  if (s.car.parts[part] >= cap) return t('state.err.partCap', { facility: FACILITY[s.facility - 1].name });
+  if (s.developments.some((d) => d.kind === 'part' && d.target === part)) return t('state.err.partBusy');
   const busy = s.developments.filter((d) => d.kind === 'part').length;
-  if (busy >= devSlots(s).parts) return 'Alle Entwicklungsplätze sind belegt.';
+  if (busy >= devSlots(s).parts) return t('state.err.slotsFull');
   const cost = partCost(s, part);
-  if (s.money < cost) return 'Nicht genug Budget.';
+  if (s.money < cost) return t('state.err.budget');
   const time = partTime(s, part);
-  book(s, `Upgrade ${PARTS[part].label} Stufe ${s.car.parts[part] + 1}`, -cost, 'upgrade');
-  s.developments.push({ id: genId('dev'), kind: 'part', target: part, remaining: time, total: time, label: `${PARTS[part].label} Stufe ${s.car.parts[part] + 1}` });
+  const partName = cat('part', part, 'label');
+  const level = s.car.parts[part] + 1;
+  book(s, m('state.ledger.upgrade', { part: partName, level }), -cost, 'upgrade');
+  s.developments.push({ id: genId('dev'), kind: 'part', target: part, remaining: time, total: time, label: m('state.dev.partLabel', { part: partName, level }) });
   return null;
 }
 
 export function startResearch(s: GameState, id: string): string | null {
   const r = RESEARCH_BY_ID[id];
-  if (!r) return 'Unbekanntes Projekt.';
-  if (s.research[id]) return 'Bereits erforscht.';
-  if (!r.requires.every((q) => s.research[q])) return 'Voraussetzungen fehlen.';
-  if (s.developments.some((d) => d.kind === 'research' && d.target === id)) return 'Wird bereits erforscht.';
-  if (s.developments.filter((d) => d.kind === 'research').length >= devSlots(s).research) return 'Das Forschungslabor ist ausgelastet.';
+  if (!r) return t('state.err.unknownProject');
+  if (s.research[id]) return t('state.err.alreadyResearched');
+  if (!r.requires.every((q) => s.research[q])) return t('state.err.missingReqs');
+  if (s.developments.some((d) => d.kind === 'research' && d.target === id)) return t('state.err.researching');
+  if (s.developments.filter((d) => d.kind === 'research').length >= devSlots(s).research) return t('state.err.labBusy');
   const cost = researchCost(s, r.cost);
-  if (s.money < cost) return 'Nicht genug Budget.';
+  if (s.money < cost) return t('state.err.budget');
   const time = researchTime(s, r.time);
-  book(s, `Forschung ${r.name}`, -cost, 'research');
-  s.developments.push({ id: genId('dev'), kind: 'research', target: id, remaining: time, total: time, label: r.name });
+  book(s, m('state.ledger.research', { name: cat('research', r.id) }), -cost, 'research');
+  s.developments.push({ id: genId('dev'), kind: 'research', target: id, remaining: time, total: time, label: cat('research', r.id) });
   return null;
 }
 
 export function startFacilityUpgrade(s: GameState): string | null {
   const next = FACILITY[s.facility];
-  if (!next) return 'Die Fabrik ist voll ausgebaut.';
-  if (s.developments.some((d) => d.kind === 'facility')) return 'Der Ausbau läuft bereits.';
+  if (!next) return t('state.err.factoryMax');
+  if (s.developments.some((d) => d.kind === 'facility')) return t('state.err.buildRunning');
   const cost = Math.round(next.cost * (1 + s.tier * 0.5));
-  if (s.money < cost) return 'Nicht genug Budget.';
-  book(s, `Ausbau: ${next.name}`, -cost, 'facility');
-  s.developments.push({ id: genId('dev'), kind: 'facility', target: 'facility', remaining: next.time, total: next.time, label: next.name });
+  if (s.money < cost) return t('state.err.budget');
+  book(s, m('state.ledger.facility', { name: cat('facility', s.facility) }), -cost, 'facility');
+  s.developments.push({ id: genId('dev'), kind: 'facility', target: 'facility', remaining: next.time, total: next.time, label: cat('facility', s.facility) });
   return null;
 }
 
@@ -225,14 +234,16 @@ export function facilityCost(s: GameState) {
 
 export function repairCost(s: GameState, k: ConditionKey) {
   const chief = staffSkill(s, 'chiefMechanic');
-  return Math.round(((1 - s.car.condition[k]) * CONDITION_COST[k] * TIERS[s.tier].money * (1 - Math.max(0, chief - 30) * 0.004)) / 100) * 100;
+  // Halbe Kosten bis zum nächsten Rennen, wenn der Spieler dafür freiwillig eine Werbung angesehen hat (siehe adRewards.ts, gleicher Schlüssel)
+  const adDiscount = s.flags.repairHalfKey === `${s.season}:${s.round}` ? 0.5 : 1;
+  return Math.round(((1 - s.car.condition[k]) * CONDITION_COST[k] * TIERS[s.tier].money * (1 - Math.max(0, chief - 30) * 0.004) * adDiscount) / 100) * 100;
 }
 
 export function repair(s: GameState, keys: ConditionKey[]): string | null {
   const total = keys.reduce((a, k) => a + repairCost(s, k), 0);
   if (total <= 0) return null;
-  if (s.money < total) return 'Nicht genug Budget für die Reparatur.';
-  book(s, keys.length > 1 ? 'Reparatur komplett' : `Reparatur`, -total, 'repair');
+  if (s.money < total) return t('state.err.budgetRepair');
+  book(s, keys.length > 1 ? m('state.ledger.repairAll') : m('state.ledger.repair'), -total, 'repair');
   for (const k of keys) s.car.condition[k] = 1;
   return null;
 }
@@ -244,20 +255,20 @@ export function signingFee(d: Driver) {
 
 export function signDriver(s: GameState, id: string, replaceId?: string): string | null {
   const d = s.drivers[id];
-  if (!d) return 'Fahrer nicht gefunden.';
-  if (s.team.driverIds.includes(id)) return 'Steht bereits unter Vertrag.';
-  if (s.team.driverIds.length >= 2 && !replaceId) return 'Beide Cockpits sind besetzt. Wähle einen Fahrer, der ersetzt wird.';
+  if (!d) return t('state.err.driverNotFound');
+  if (s.team.driverIds.includes(id)) return t('state.err.alreadySigned');
+  if (s.team.driverIds.length >= 2 && !replaceId) return t('state.err.cockpitsFull');
   if (d.academy) return promoteAcademy(s, id, replaceId);
-  if (s.reputation + 30 < driverRequiredRep(s, d)) return `${d.name} hält dein Team noch nicht für konkurrenzfähig (Reputation zu niedrig).`;
+  if (s.reputation + 30 < driverRequiredRep(s, d)) return t('state.err.driverRep', { name: d.name });
   const fee = signingFee(d);
-  if (s.money < fee) return 'Nicht genug Budget für die Unterschriftsprämie.';
+  if (s.money < fee) return t('state.err.budgetSigning');
   if (replaceId) releaseDriver(s, replaceId, true);
-  book(s, `Vertrag ${d.name}`, -fee, 'salary');
+  book(s, m('state.ledger.signing', { name: d.name }), -fee, 'salary');
   d.teamId = 'player';
   d.contract = Math.max(d.contract, 7);
   s.team.driverIds.push(id);
   s.driverMarket = s.driverMarket.filter((x) => x !== id);
-  news(s, `${d.name} unterschreibt bei ${s.team.name}.`, 'good');
+  news(s, m('state.news.signed', { name: d.name, team: s.team.name }), 'good');
   return null;
 }
 
@@ -273,7 +284,7 @@ export function releaseCost(d: Driver) {
 
 export function releaseDriver(s: GameState, id: string, silent = false): string | null {
   const d = s.drivers[id];
-  if (!d) return 'Fahrer nicht gefunden.';
+  if (!d) return t('state.err.driverNotFound');
   if (s.academy.includes(id)) {
     s.academy = s.academy.filter((x) => x !== id);
     d.academy = false;
@@ -281,22 +292,22 @@ export function releaseDriver(s: GameState, id: string, silent = false): string 
     return null;
   }
   const cost = releaseCost(d);
-  book(s, `Abfindung ${d.name}`, -cost, 'salary');
+  book(s, m('state.ledger.severance', { name: d.name }), -cost, 'salary');
   s.team.driverIds = s.team.driverIds.filter((x) => x !== id);
   d.teamId = null;
   d.contract = 0;
   s.driverMarket.push(id);
-  if (!silent) news(s, `${d.name} verlässt das Team.`, 'neutral');
+  if (!silent) news(s, m('state.news.leaves', { name: d.name }), 'neutral');
   return null;
 }
 
 export function renewDriver(s: GameState, id: string, races: number): string | null {
   const d = s.drivers[id];
-  if (!d) return 'Fahrer nicht gefunden.';
+  if (!d) return t('state.err.driverNotFound');
   const newSalary = Math.round((driverSalary(d, s.tier) * (d.morale < 50 ? 1.15 : 1)) / 500) * 500;
   const bonus = newSalary;
-  if (s.money < bonus) return 'Nicht genug Budget für die Verlängerungsprämie.';
-  book(s, `Verlängerung ${d.name}`, -bonus, 'salary');
+  if (s.money < bonus) return t('state.err.budgetRenewal');
+  book(s, m('state.ledger.renewal', { name: d.name }), -bonus, 'salary');
   d.salary = Math.max(d.salary, newSalary);
   d.contract += races;
   d.morale = clamp(d.morale + 8, 0, 100);
@@ -309,11 +320,11 @@ export function academyCost(s: GameState) {
 
 export function signAcademy(s: GameState, id: string): string | null {
   const d = s.drivers[id];
-  if (!d) return 'Fahrer nicht gefunden.';
-  if (s.academy.length >= 3) return 'Die Akademie ist voll (max. 3 Talente).';
+  if (!d) return t('state.err.driverNotFound');
+  if (s.academy.length >= 3) return t('state.err.academyFull');
   const cost = academyCost(s);
-  if (s.money < cost) return 'Nicht genug Budget.';
-  book(s, `Akademie: ${d.name}`, -cost, 'salary');
+  if (s.money < cost) return t('state.err.budget');
+  book(s, m('state.ledger.academy', { name: d.name }), -cost, 'salary');
   d.academy = true;
   d.teamId = 'academy';
   d.talentKnown = true;
@@ -321,15 +332,15 @@ export function signAcademy(s: GameState, id: string): string | null {
   s.academy.push(id);
   s.driverMarket = s.driverMarket.filter((x) => x !== id);
   unlock(s, 'academy');
-  news(s, `${d.name} kommt in die Nachwuchsakademie.`, 'good');
+  news(s, m('state.news.academyJoin', { name: d.name }), 'good');
   return null;
 }
 
 export function promoteAcademy(s: GameState, id: string, replaceId?: string): string | null {
   const d = s.drivers[id];
-  if (!d || !s.academy.includes(id)) return 'Nicht in der Akademie.';
+  if (!d || !s.academy.includes(id)) return t('state.err.notInAcademy');
   if (s.team.driverIds.length >= 2) {
-    if (!replaceId) return 'Wähle einen Fahrer, der das Cockpit räumt.';
+    if (!replaceId) return t('state.err.pickReplace');
     releaseDriver(s, replaceId, true);
   }
   s.academy = s.academy.filter((x) => x !== id);
@@ -338,7 +349,7 @@ export function promoteAcademy(s: GameState, id: string, replaceId?: string): st
   d.salary = driverSalary(d, s.tier);
   d.contract = 14;
   s.team.driverIds.push(id);
-  news(s, `${d.name} steigt aus der Akademie ins Renncockpit auf!`, 'good');
+  news(s, m('state.news.academyPromote', { name: d.name }), 'good');
   return null;
 }
 
@@ -354,26 +365,26 @@ export function scoutTalent(s: GameState) {
 // ---------- Mitarbeiter ----------
 export function hireStaff(s: GameState, staffId: string): string | null {
   const st = s.staffMarket.find((x) => x.id === staffId);
-  if (!st) return 'Nicht gefunden.';
+  if (!st) return t('state.err.notFound');
   const fee = st.salary * 2;
-  if (s.money < fee) return 'Nicht genug Budget.';
+  if (s.money < fee) return t('state.err.budget');
   const old = s.staff[st.role];
   if (old) {
-    book(s, `Abfindung ${old.name}`, -old.salary * 2, 'staff');
+    book(s, m('state.ledger.severance', { name: old.name }), -old.salary * 2, 'staff');
   }
-  book(s, `Einstellung ${st.name}`, -fee, 'staff');
+  book(s, m('state.ledger.hire', { name: st.name }), -fee, 'staff');
   s.staff[st.role] = st;
   s.staffMarket = s.staffMarket.filter((x) => x.id !== staffId);
   if (old) s.staffMarket.push(old);
   if (st.role === 'dataAnalyst') scoutTalent(s);
-  news(s, `${st.name} verstärkt das Team.`, 'good');
+  news(s, m('state.news.hired', { name: st.name }), 'good');
   return null;
 }
 
 export function fireStaff(s: GameState, role: Staff['role']) {
   const old = s.staff[role];
   if (!old) return;
-  book(s, `Abfindung ${old.name}`, -old.salary * 2, 'staff');
+  book(s, m('state.ledger.severance', { name: old.name }), -old.salary * 2, 'staff');
   delete s.staff[role];
 }
 
@@ -384,15 +395,15 @@ export function sponsorSlots(s: GameState) {
 
 export function signSponsor(s: GameState, id: string): string | null {
   const sp = s.sponsorOffers.find((x) => x.id === id);
-  if (!sp) return 'Angebot nicht mehr verfügbar.';
-  if (s.reputation < sp.minReputation) return `Benötigt ${sp.minReputation} Reputation.`;
+  if (!sp) return t('state.err.offerGone');
+  if (s.reputation < sp.minReputation) return t('state.err.needRep', { rep: sp.minReputation });
   const slots = sponsorSlots(s);
   const used = s.sponsors.filter((x) => x.slot === sp.slot).length;
-  if (used >= (sp.slot === 'main' ? slots.main : slots.secondary)) return sp.slot === 'main' ? 'Du hast bereits einen Hauptsponsor.' : 'Alle Nebensponsor-Plätze sind belegt.';
-  book(s, `Unterschrift ${sp.name}`, sp.signingBonus, 'sponsor');
+  if (used >= (sp.slot === 'main' ? slots.main : slots.secondary)) return sp.slot === 'main' ? t('state.err.haveMain') : t('state.err.slotsSecondary');
+  book(s, m('state.ledger.sponsorSign', { name: sp.name }), sp.signingBonus, 'sponsor');
   s.sponsors.push({ ...sp, satisfaction: 70, misses: 0 });
   s.sponsorOffers = s.sponsorOffers.filter((x) => x.id !== id);
-  news(s, `${sp.name} wird ${sp.slot === 'main' ? 'Hauptsponsor' : 'Partner'}.`, 'good');
+  news(s, sp.slot === 'main' ? m('state.news.sponsorMain', { name: sp.name }) : m('state.news.sponsorPartner', { name: sp.name }), 'good');
   return null;
 }
 
@@ -401,7 +412,7 @@ export function cancelSponsor(s: GameState, id: string) {
   if (!sp) return;
   s.sponsors = s.sponsors.filter((x) => x.id !== id);
   s.reputation = clamp(s.reputation - 3, 0, 100);
-  news(s, `Vertrag mit ${sp.name} aufgelöst.`, 'bad');
+  news(s, m('state.news.sponsorCancel', { name: sp.name }), 'bad');
 }
 
 // ---------- Entwicklung abschließen ----------
@@ -415,15 +426,15 @@ export function tickDevelopments(s: GameState) {
       s.car.parts[p] += 1;
       s.stats.upgradesDone++;
       if (s.car.parts[p] >= 10) unlock(s, 'max_part');
-      news(s, `Upgrade fertig: ${d.label}`, 'good');
+      news(s, m('state.news.upgradeDone', { label: d.label }), 'good');
     } else if (d.kind === 'research') {
       s.research[d.target] = true;
       s.stats.researchDone++;
       if (s.stats.researchDone >= 10) unlock(s, 'researcher');
-      news(s, `Forschung abgeschlossen: ${d.label}`, 'good');
+      news(s, m('state.news.researchDone', { label: d.label }), 'good');
     } else if (d.kind === 'facility') {
       s.facility += 1;
-      news(s, `Ausbau abgeschlossen: ${FACILITY[s.facility - 1].name}`, 'good');
+      news(s, m('state.news.facilityDone', { name: cat('facility', s.facility - 1) }), 'good');
     }
   }
 }

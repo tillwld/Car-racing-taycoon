@@ -3,6 +3,7 @@
 import type { CarSim, Input, RaceEngine } from './engine';
 import { pointAt, wrapIndex, type TrackGeometry } from './trackGeometry';
 import { PIT } from './params';
+import { m } from '../i18n';
 
 export interface AIState {
   offsetCur: number;
@@ -95,7 +96,7 @@ function rollMood(eng: RaceEngine, c: CarSim) {
   if (r < pFlow) {
     eng.aiEvents.flow++;
     ai.mood = 0.8 + Math.random() * 0.3;
-    if (c.cfg.playerTeam && !c.cfg.human && eng.cfg.mode === 'race' && c.started) eng.msg(`${c.cfg.short} fährt eine Glanzrunde!`, 'good', c.cfg.id);
+    if (c.cfg.playerTeam && !c.cfg.human && eng.cfg.mode === 'race' && c.started) eng.msg(m('ai.brilliantLap', { name: c.cfg.short }), 'good', c.cfg.id);
   } else if (r < pFlow + pRough) {
     eng.aiEvents.rough++;
     ai.mood = -(0.7 + Math.random() * 0.4);
@@ -244,9 +245,9 @@ export function aiControl(eng: RaceEngine, c: CarSim, dt: number): Input {
         c.tyre.wear = Math.min(1, c.tyre.wear + 0.01);
       }
       if (c.cfg.playerTeam) {
-        if (ai.mistakeKind === 'off') eng.msg(`${c.cfg.short}: Ausrutscher! Neben der Strecke.`, 'warn', c.cfg.id);
-        else if (ai.mistakeKind === 'slow') eng.msg(`${c.cfg.short}: Unsicher, verliert Zeit.`, 'warn', c.cfg.id);
-        else if (ai.mistakeKind !== 'wide') eng.msg(`${c.cfg.short}: Verbremser!`, 'warn', c.cfg.id);
+        if (ai.mistakeKind === 'off') eng.msg(m('ai.mistake.off', { name: c.cfg.short }), 'warn', c.cfg.id);
+        else if (ai.mistakeKind === 'slow') eng.msg(m('ai.mistake.slow', { name: c.cfg.short }), 'warn', c.cfg.id);
+        else if (ai.mistakeKind !== 'wide') eng.msg(m('ai.mistake.lock', { name: c.cfg.short }), 'warn', c.cfg.id);
       }
     }
   }

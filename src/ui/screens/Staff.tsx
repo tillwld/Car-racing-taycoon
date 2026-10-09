@@ -6,9 +6,10 @@ import { STAFF_KEYS, STAFF_ROLES } from '../../data/catalog';
 import { fireStaff, hireStaff } from '../../game/state';
 import { pitCrewTime } from '../../game/carModel';
 import type { StaffRole } from '../../types';
+import { t, tx } from '../../i18n';
 
 // Womit man anfangen sollte: die ersten zwei bringen am meisten
-const PRIORITY: Partial<Record<StaffRole, string>> = { mechanic: 'Zuerst einstellen', raceEngineer: 'Zuerst einstellen' };
+const PRIORITY: Partial<Record<StaffRole, boolean>> = { mechanic: true, raceEngineer: true };
 const ORDER: StaffRole[] = ['mechanic', 'raceEngineer', 'chiefMechanic', 'engineEngineer', 'aeroEngineer', 'dataAnalyst'];
 
 export default function StaffScreen() {
@@ -22,28 +23,28 @@ export default function StaffScreen() {
       <StationIntro
         id="staff"
         icon="staff"
-        lead="Gute Mitarbeiter machen dein Team besser. Jeder hat eine feste Aufgabe und kostet Gehalt pro Rennen."
+        lead={t('staff.intro.lead')}
         items={[
-          { title: 'Stellen besetzen', text: 'Pro Aufgabe gibt es eine Stelle. Bewerber siehst du mit Können, Gehalt und Antrittsgeld.' },
-          { title: 'Das richtige Können wählen', text: 'Je höher das Können, desto stärker der Effekt, aber auch das Gehalt. Du kannst jederzeit ersetzen.' },
-          { title: 'Wirkung verstehen', text: 'Unter jeder Stelle steht, was sie bringt: schnellere Stopps, günstigere Reparaturen, schnellere Entwicklung …' },
-          { title: 'Kosten im Blick', text: 'Gehälter werden bei jedem Rennen abgezogen. Oben siehst du die Summe.' },
+          { title: t('staff.intro.fillTitle'), text: t('staff.intro.fillText') },
+          { title: t('staff.intro.skillTitle'), text: t('staff.intro.skillText') },
+          { title: t('staff.intro.effectTitle'), text: t('staff.intro.effectText') },
+          { title: t('staff.intro.costTitle'), text: t('staff.intro.costText') },
         ]}
-        tip="Tipp: Fang mit Mechaniker und Renningenieur an. Die bringen am meisten für wenig Geld."
+        tip={t('staff.intro.tip')}
       />
 
       <div className="grid g3 keep">
         <div className="card stat-tile">
-          <span className="eyebrow">Gehälter pro Rennen</span>
+          <span className="eyebrow">{t('staff.tile.salaries')}</span>
           <span className="big-num"><Money v={total} compact /></span>
         </div>
         <div className="card stat-tile">
-          <span className="eyebrow">Boxenstopp (Standzeit)</span>
-          <span className="big-num">{crew.base.toFixed(1)} s</span>
-          <span className="sub">Fehlerquote {Math.round(crew.error * 100)} %</span>
+          <span className="eyebrow">{t('staff.tile.pitStop')}</span>
+          <span className="big-num">{t('staff.tile.seconds', { v: crew.base })}</span>
+          <span className="sub">{t('staff.tile.errorRate', { p: crew.error })}</span>
         </div>
         <div className="card stat-tile">
-          <span className="eyebrow">Stellen besetzt</span>
+          <span className="eyebrow">{t('staff.tile.filled')}</span>
           <span className="big-num">{Object.keys(g.staff).length}/{STAFF_KEYS.length}</span>
         </div>
       </div>
@@ -59,43 +60,43 @@ export default function StaffScreen() {
                 <div style={{ minWidth: 0 }}>
                   <div className="row" style={{ gap: 8 }}>
                     <h3>{STAFF_ROLES[r].label}</h3>
-                    {cur ? <span className="pill good">besetzt</span> : <span className="pill warn">unbesetzt</span>}
-                    {!cur && PRIORITY[r] && <span className="pill team">{PRIORITY[r]}</span>}
+                    {cur ? <span className="pill good">{t('staff.filled')}</span> : <span className="pill warn">{t('staff.vacant')}</span>}
+                    {!cur && PRIORITY[r] && <span className="pill team">{t('staff.hireFirst')}</span>}
                   </div>
                   <p className="muted" style={{ fontSize: 13.5, marginTop: 2 }}><b>{STAFF_ROLES[r].desc}.</b> {STAFF_ROLES[r].effect}.</p>
                 </div>
                 <Btn variant={cur ? 'sm' : 'sm primary'} onClick={() => setOpenRole(open ? null : r)}>
-                  {open ? 'Bewerber schließen' : cur ? `Ersetzen (${market.length})` : `Bewerber ansehen (${market.length})`}
+                  {open ? t('staff.closeCandidates') : cur ? t('staff.replaceCount', { n: market.length }) : t('staff.viewCandidates', { n: market.length })}
                 </Btn>
               </div>
               {cur && (
                 <div className="row between" style={{ gap: 12, padding: '8px 10px', borderRadius: 8, background: 'var(--panel-2)' }}>
                   <div style={{ minWidth: 0 }}>
-                    <b>{cur.name}</b> <span className="muted" style={{ fontSize: 13 }}>· {cur.trait ?? cur.country}</span>
-                    <div className="muted" style={{ fontSize: 12.5 }}>Gehalt <Money v={cur.salary} />/Rennen</div>
+                    <b>{cur.name}</b> <span className="muted" style={{ fontSize: 13 }}>· {cur.trait ? tx(cur.trait) : cur.country}</span>
+                    <div className="muted" style={{ fontSize: 12.5 }}>{t('staff.salary')} <Money v={cur.salary} />{t('staff.perRace')}</div>
                   </div>
                   <div style={{ width: 140 }}>
-                    <div className="row between" style={{ fontSize: 12.5 }}><span className="muted">Können</span><b>{cur.skill}</b></div>
+                    <div className="row between" style={{ fontSize: 12.5 }}><span className="muted">{t('staff.skill')}</span><b>{cur.skill}</b></div>
                     <Bar value={cur.skill} />
                   </div>
-                  <Btn variant="sm danger" onClick={() => update((s) => fireStaff(s, r))}>Entlassen (<Money v={cur.salary * 2} compact />)</Btn>
+                  <Btn variant="sm danger" onClick={() => update((s) => fireStaff(s, r))}>{t('staff.fire')} (<Money v={cur.salary * 2} compact />)</Btn>
                 </div>
               )}
               {open && (
                 <div className="stack" style={{ gap: 6 }}>
-                  <div className="eyebrow">Bewerber</div>
+                  <div className="eyebrow">{t('staff.candidates')}</div>
                   {market.map((st) => (
                     <div key={st.id} className="row between" style={{ fontSize: 14, borderBottom: '1px solid var(--line)', paddingBottom: 6 }}>
                       <div style={{ minWidth: 0 }}>
-                        <b>{st.name}</b> <span className="muted">· Können {st.skill}{st.trait ? ` · ${st.trait}` : ''}</span>
-                        <div className="muted" style={{ fontSize: 12.5 }}><Money v={st.salary} />/Rennen · Antrittsgeld <Money v={st.salary * 2} compact /></div>
+                        <b>{st.name}</b> <span className="muted">· {t('staff.skillN', { n: st.skill })}{st.trait ? ` · ${tx(st.trait)}` : ''}</span>
+                        <div className="muted" style={{ fontSize: 12.5 }}><Money v={st.salary} />{t('staff.perRace')} · {t('staff.signingFee')} <Money v={st.salary * 2} compact /></div>
                       </div>
                       <Btn variant={cur && cur.skill >= st.skill ? 'sm' : 'sm primary'} disabled={g.money < st.salary * 2} onClick={() => { update((s) => hireStaff(s, st.id)); setOpenRole(null); }}>
-                        {cur ? 'Ersetzen' : 'Einstellen'}
+                        {cur ? t('staff.replace') : t('staff.hire')}
                       </Btn>
                     </div>
                   ))}
-                  {market.length === 0 && <span className="muted">Aktuell keine Bewerber. Der Markt erneuert sich nach den Rennen.</span>}
+                  {market.length === 0 && <span className="muted">{t('staff.noCandidates')}</span>}
                 </div>
               )}
             </div>

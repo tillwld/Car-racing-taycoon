@@ -11,6 +11,7 @@ import { COMPOUNDS, COMPOUND_KEYS, OVERTAKE_LABELS, STYLE_LABELS } from '../../d
 import type { Compound, GameState, Setup, Strategy } from '../../types';
 import { setupQuality } from '../../race/params';
 import { lapTime } from '../../game/util';
+import { t, tx, useLang } from '../../i18n';
 
 type Props = {
   g: GameState;
@@ -24,6 +25,7 @@ type Props = {
 };
 
 export default function RaceStation(props: Props) {
+  useLang();
   const { g, focus } = props;
   const w = g.weekend!;
   const { update } = useLoadedGame();
@@ -64,7 +66,7 @@ export default function RaceStation(props: Props) {
   const setCur = (p: Partial<Strategy>) => (driver === 'd1' ? setS1({ ...s1, ...p }) : setS2({ ...s2, ...p }));
   const driverSwitch = props.hasTeammate ? (
     <div className="row" style={{ gap: 8 }}>
-      <span className="muted" style={{ fontSize: 13 }}>Plan für</span>
+      <span className="muted" style={{ fontSize: 13 }}>{t('racest.planFor')}</span>
       <Seg value={driver} onChange={setDriver} options={[{ v: 'd1', l: props.d1.split(' ').slice(-1)[0] }, { v: 'd2', l: props.d2.split(' ').slice(-1)[0] }]} />
     </div>
   ) : null;
@@ -81,81 +83,81 @@ export default function RaceStation(props: Props) {
 // ---------- Prüfstand ----------
 function Pruefstand({ g, canRace, onPracticeDrive, onPracticeSim, setup, setSetup }: Props & { setup: Setup; setSetup: (s: Setup) => void }) {
   const w = g.weekend!;
-  const t = TRACK_BY_ID[w.trackId];
+  const trk = TRACK_BY_ID[w.trackId];
   const [tab, setTab] = useState<'training' | 'setup'>('training');
-  const quality = setupQuality(setup, { ...t, ideal: w.setupHint });
+  const quality = setupQuality(setup, { ...trk, ideal: w.setupHint });
   const sliders: { k: keyof Setup; l: string; what: string; lo: string; hi: string }[] = [
-    { k: 'wing', l: 'Flügel', what: 'Mehr Abtrieb hält dich in Kurven auf der Straße, kostet aber Tempo auf den Geraden.', lo: 'wenig Abtrieb · Topspeed', hi: 'viel Abtrieb · Kurvenspeed' },
-    { k: 'gearing', l: 'Übersetzung', what: 'Kurz beschleunigt besser aus Kurven, lang bringt mehr Höchstgeschwindigkeit.', lo: 'kurz · Beschleunigung', hi: 'lang · Endgeschwindigkeit' },
-    { k: 'suspension', l: 'Fahrwerk', what: 'Weich schont die Reifen, hart reagiert direkter und präziser.', lo: 'weich · reifenschonend', hi: 'hart · präzise' },
+    { k: 'wing', l: t('racest.setup.wing'), what: t('racest.setup.wingWhat'), lo: t('racest.setup.wingLo'), hi: t('racest.setup.wingHi') },
+    { k: 'gearing', l: t('racest.setup.gearing'), what: t('racest.setup.gearingWhat'), lo: t('racest.setup.gearingLo'), hi: t('racest.setup.gearingHi') },
+    { k: 'suspension', l: t('racest.setup.suspension'), what: t('racest.setup.suspensionWhat'), lo: t('racest.setup.suspensionLo'), hi: t('racest.setup.suspensionHi') },
   ];
   return (
     <>
       <StationIntro
         id="setup"
         icon="wrench"
-        lead="Im Prüfstand bereitest du dein Auto auf die nächste Strecke vor. Zuerst sammelst du Daten, dann stellst du das Auto ein."
+        lead={t('racest.setup.intro.lead')}
         items={[
-          { title: 'Training fahren', text: 'Fahre selbst Runden oder lass sie simulieren. Jede Runde erhöht das Setup-Wissen deines Ingenieurs.' },
-          { title: 'Empfehlung abwarten', text: 'Mit mehr Wissen wird die grüne Markierung an den Reglern genauer. Sie zeigt die ideale Einstellung.' },
-          { title: 'Auto einstellen', text: 'Stelle Flügel, Übersetzung und Fahrwerk ein, oder übernimm mit einem Klick die Empfehlung.' },
-          { title: 'Passung prüfen', text: 'Der Wert „Passt zur Empfehlung“ zeigt, wie gut du getroffen hast. Je höher, desto schneller bist du.' },
+          { title: t('racest.setup.intro.i1Title'), text: t('racest.setup.intro.i1Text') },
+          { title: t('racest.setup.intro.i2Title'), text: t('racest.setup.intro.i2Text') },
+          { title: t('racest.setup.intro.i3Title'), text: t('racest.setup.intro.i3Text') },
+          { title: t('racest.setup.intro.i4Title'), text: t('racest.setup.intro.i4Text') },
         ]}
-        tip="Tipp: Einmal Training simulieren und die Empfehlung übernehmen reicht für den Anfang."
+        tip={t('racest.setup.intro.tip')}
       />
       <TrackStrip w={w} />
       <SubTabs
         value={tab}
         onChange={setTab}
         tabs={[
-          { v: 'training', l: 'Training', hint: 'Sammle Daten für die Abstimmung. Nach dem Qualifying ist das Training beendet.', badge: `${Math.round(w.setupKnowledge)} %` },
-          { v: 'setup', l: 'Abstimmung', hint: 'Stelle dein Auto auf diese Strecke ein. Änderungen werden automatisch gespeichert.', badge: `${Math.round(quality * 100)} %` },
+          { v: 'training', l: t('racest.setup.tabTraining'), hint: t('racest.setup.tabTrainingHint'), badge: t('racest.pct', { n: Math.round(w.setupKnowledge) }) },
+          { v: 'setup', l: t('racest.setup.tabSetup'), hint: t('racest.setup.tabSetupHint'), badge: t('racest.pct', { n: Math.round(quality * 100) }) },
         ]}
       />
 
       {tab === 'training' && (
-        <Block title="Training" hint="Je mehr Runden, desto besser kennt dein Ingenieur die Strecke.">
+        <Block title={t('racest.training.title')} hint={t('racest.training.hint')}>
           <div className="stack" style={{ gap: 4 }}>
             <div className="row between" style={{ fontSize: 13 }}>
-              <span className="muted">Setup-Wissen</span>
-              <span className="num">{Math.round(w.setupKnowledge)} %</span>
+              <span className="muted">{t('racest.setup.knowledge')}</span>
+              <span className="num">{t('racest.pct', { n: Math.round(w.setupKnowledge) })}</span>
             </div>
             <Bar value={w.setupKnowledge} tone={w.setupKnowledge > 70 ? 'good' : undefined} />
           </div>
-          {w.practiceBest > 0 && <span className="muted" style={{ fontSize: 13 }}>Bestzeit: <span className="num">{lapTime(w.practiceBest)}</span></span>}
+          {w.practiceBest > 0 && <span className="muted" style={{ fontSize: 13 }}>{t('racest.training.best')} <span className="num">{lapTime(w.practiceBest)}</span></span>}
           {w.practiceLog.length > 0 && (
             <div className="stack hint-card" style={{ gap: 4, fontSize: 13.5 }}>
-              <span className="eyebrow">Rückmeldung des Ingenieurs</span>
+              <span className="eyebrow">{t('racest.training.feedback')}</span>
               {w.practiceLog.map((l, i) => (
-                <span key={i}>„{l}“</span>
+                <span key={i}>{t('racest.quote', { text: tx(l) })}</span>
               ))}
             </div>
           )}
-          {w.qualiDone && <span className="muted" style={{ fontSize: 13 }}>Das Qualifying ist schon gefahren. Das Training ist für dieses Wochenende beendet.</span>}
+          {w.qualiDone && <span className="muted" style={{ fontSize: 13 }}>{t('racest.training.qualiDone')}</span>}
           <div className="row">
-            <Btn variant="primary" icon="play" disabled={w.qualiDone || !canRace} onClick={onPracticeDrive}>Selbst fahren</Btn>
-            <Btn icon="sim" disabled={w.qualiDone || !canRace} onClick={onPracticeSim}>Simulieren</Btn>
+            <Btn variant="primary" icon="play" disabled={w.qualiDone || !canRace} onClick={onPracticeDrive}>{t('racest.btn.driveSelf')}</Btn>
+            <Btn icon="sim" disabled={w.qualiDone || !canRace} onClick={onPracticeSim}>{t('racest.btn.simulate')}</Btn>
           </div>
         </Block>
       )}
 
       {tab === 'setup' && (
         <Block
-          title="Fahrzeugabstimmung"
-          hint="Der grüne Strich an jedem Regler ist die Empfehlung deines Ingenieurs."
-          right={<Btn variant="sm primary" onClick={() => setSetup({ ...w.setupHint })}>Empfehlung übernehmen</Btn>}
+          title={t('racest.setup.title')}
+          hint={t('racest.setup.hint')}
+          right={<Btn variant="sm primary" onClick={() => setSetup({ ...w.setupHint })}>{t('racest.setup.apply')}</Btn>}
         >
           {sliders.map((sl) => (
             <div key={sl.k} className="field">
               <div className="row between">
                 <label htmlFor={`set-${sl.k}`}>{sl.l}</label>
-                <span className="num" style={{ fontSize: 13 }}>{setup[sl.k]} <span className="muted">· Empfehlung {w.setupHint[sl.k]}</span></span>
+                <span className="num" style={{ fontSize: 13 }}>{setup[sl.k]} <span className="muted">· {t('racest.setup.recommendation')} {w.setupHint[sl.k]}</span></span>
               </div>
               <div style={{ position: 'relative' }}>
                 <input id={`set-${sl.k}`} type="range" min={0} max={100} value={setup[sl.k]} onChange={(e) => setSetup({ ...setup, [sl.k]: +e.target.value })} />
                 <span aria-hidden="true" style={{ position: 'absolute', top: -4, left: `calc(${w.setupHint[sl.k]}% - 1px)`, width: 2, height: 8, background: 'var(--good)' }} />
               </div>
-              <div className="row between muted" style={{ fontSize: 11.5 }}>
+              <div className="row between muted" style={{ fontSize: 12 }}>
                 <span>{sl.lo}</span>
                 <span>{sl.hi}</span>
               </div>
@@ -163,8 +165,8 @@ function Pruefstand({ g, canRace, onPracticeDrive, onPracticeSim, setup, setSetu
             </div>
           ))}
           <div className="row between" style={{ fontSize: 14 }}>
-            <span className="muted">Passt zur Empfehlung (Setup-Wissen {Math.round(w.setupKnowledge)} %)</span>
-            <b className={quality > 0.85 ? 'good' : quality > 0.65 ? 'warn' : 'bad'}>{Math.round(quality * 100)} %</b>
+            <span className="muted">{t('racest.setup.fit', { n: Math.round(w.setupKnowledge) })}</span>
+            <b className={quality > 0.85 ? 'good' : quality > 0.65 ? 'warn' : 'bad'}>{t('racest.pct', { n: Math.round(quality * 100) })}</b>
           </div>
         </Block>
       )}
@@ -175,11 +177,11 @@ function Pruefstand({ g, canRace, onPracticeDrive, onPracticeSim, setup, setSetu
 // ---------- Reifenlager ----------
 function Reifenlager({ g, cur, setCur, driverSwitch, isD1 }: Props & { cur: Strategy; setCur: (p: Partial<Strategy>) => void; driverSwitch: ReactNode; isD1: boolean }) {
   const w = g.weekend!;
-  const t = TRACK_BY_ID[w.trackId];
+  const trk = TRACK_BY_ID[w.trackId];
   const [tab, setTab] = useState<'plan' | 'compounds'>('plan');
   const laps = w.laps;
   const scale = Math.max(laps, 6);
-  const tyreLife = (c: Compound) => Math.max(1, (COMPOUNDS[c].life * scale) / t.tyreWear);
+  const tyreLife = (c: Compound) => Math.max(1, (COMPOUNDS[c].life * scale) / trk.tyreWear);
   const fuelLaps = cur.fuel * laps;
   const lapsOnStart = cur.stops.length ? cur.stops[0].lap : laps;
   const startLifeWarn = ['soft', 'medium', 'hard'].includes(cur.startCompound) && tyreLife(cur.startCompound) < lapsOnStart - 0.5;
@@ -188,29 +190,29 @@ function Reifenlager({ g, cur, setCur, driverSwitch, isD1 }: Props & { cur: Stra
       <StationIntro
         id="tyres"
         icon="pit"
-        lead="Im Reifenlager planst du Reifen, Sprit und Boxenstopps für das Rennen."
+        lead={t('racest.tyres.intro.lead')}
         items={[
-          { title: 'Startreifen wählen', text: 'Weiche Reifen sind schnell, halten aber kürzer. Harte halten länger. Bei Regen brauchst du Intermediate oder Regenreifen.' },
-          { title: 'Tankmenge einstellen', text: 'Mehr Sprit ist sicher, macht das Auto aber schwerer und langsamer.' },
-          { title: 'Boxenstopps planen', text: 'Lege fest, in welcher Runde du auf welche Mischung wechselst. Du kannst bis zu drei Stopps einplanen.' },
-          { title: 'Mischungen vergleichen', text: 'Der zweite Reiter zeigt, wie lange jede Mischung auf dieser Strecke hält.' },
+          { title: t('racest.tyres.intro.i1Title'), text: t('racest.tyres.intro.i1Text') },
+          { title: t('racest.tyres.intro.i2Title'), text: t('racest.tyres.intro.i2Text') },
+          { title: t('racest.tyres.intro.i3Title'), text: t('racest.tyres.intro.i3Text') },
+          { title: t('racest.tyres.intro.i4Title'), text: t('racest.tyres.intro.i4Text') },
         ]}
-        tip="Tipp: Der Reiter „Mischungen“ zeigt, wie lange jeder Reifen hält. Plane deinen Stopp vor diesem Wert."
+        tip={t('racest.tyres.intro.tip')}
       />
       <TrackStrip w={w} weather />
       <SubTabs
         value={tab}
         onChange={setTab}
         tabs={[
-          { v: 'plan', l: 'Plan', hint: 'Startreifen, Tankmenge und Boxenstopps für dein Rennen.' },
-          { v: 'compounds', l: 'Mischungen', hint: 'Wie lange hält welcher Reifen auf dieser Strecke?' },
+          { v: 'plan', l: t('racest.tyres.tabPlan'), hint: t('racest.tyres.tabPlanHint') },
+          { v: 'compounds', l: t('racest.tyres.tabCompounds'), hint: t('racest.tyres.tabCompoundsHint') },
         ]}
       />
 
       {tab === 'plan' && (
         <>
           {driverSwitch}
-          <Block title="Startreifen" hint="Mit diesem Reifen startest du ins Rennen.">
+          <Block title={t('racest.tyres.startTitle')} hint={t('racest.tyres.startHint')}>
             <div className="tyre-pick">
               {COMPOUND_KEYS.map((c) => (
                 <button key={c} type="button" className={cur.startCompound === c ? 'on' : ''} onClick={() => setCur({ startCompound: c })}>
@@ -219,68 +221,68 @@ function Reifenlager({ g, cur, setCur, driverSwitch, isD1 }: Props & { cur: Stra
                 </button>
               ))}
             </div>
-            {startLifeWarn && <span className="warn" style={{ fontSize: 13 }}>Diese Mischung hält vermutlich nicht bis zum ersten Stopp.</span>}
+            {startLifeWarn && <span className="warn" style={{ fontSize: 13 }}>{t('racest.tyres.startWarn')}</span>}
           </Block>
 
-          <Block title="Tankmenge" hint="Wie viel Sprit du mit ins Rennen nimmst.">
+          <Block title={t('racest.tyres.fuelTitle')} hint={t('racest.tyres.fuelHint')}>
             <div className="field">
               <div className="row between">
-                <label htmlFor="fuel">Tank</label>
-                <span className="num" style={{ fontSize: 13 }}>{Math.round(cur.fuel * 100)} % · {fuelLaps.toFixed(1)} Runden</span>
+                <label htmlFor="fuel">{t('racest.tyres.fuelLabel')}</label>
+                <span className="num" style={{ fontSize: 13 }}>{t('racest.tyres.fuelValue', { pct: cur.fuel, laps: fuelLaps })}</span>
               </div>
               <input id="fuel" type="range" min={80} max={125} value={Math.round(cur.fuel * 100)} onChange={(e) => setCur({ fuel: +e.target.value / 100 })} />
               <span className="muted" style={{ fontSize: 12.5 }}>
-                {cur.fuel < 1 ? 'Zu wenig für das ganze Rennen: ein Tankstopp ist nötig.' : cur.fuel < 1.04 ? 'Knapp kalkuliert: bei Vollgas musst du Sprit sparen.' : 'Mehr Sprit = schwerer und langsamer, aber sicher.'}
+                {t(cur.fuel < 1 ? 'racest.tyres.fuelLow' : cur.fuel < 1.04 ? 'racest.tyres.fuelTight' : 'racest.tyres.fuelOk')}
               </span>
             </div>
           </Block>
 
           <Block
-            title="Boxenstopps"
-            hint="Wann kommst du an die Box und welche Reifen bekommst du?"
+            title={t('racest.tyres.stopsTitle')}
+            hint={t('racest.tyres.stopsHint')}
             right={
               <Btn variant="sm" disabled={cur.stops.length >= 3} onClick={() => setCur({ stops: [...cur.stops, { lap: Math.min(laps, (cur.stops[cur.stops.length - 1]?.lap ?? 1) + Math.max(1, Math.floor(laps / 3))), compound: 'medium' }] })}>
-                Stopp hinzufügen
+                {t('racest.tyres.addStop')}
               </Btn>
             }
           >
-            {cur.stops.length === 0 && <span className="muted" style={{ fontSize: 13 }}>Kein geplanter Stopp. Bei Wetterwechsel reagiert das Team automatisch, wenn das in der Boxenmauer aktiviert ist.</span>}
+            {cur.stops.length === 0 && <span className="muted" style={{ fontSize: 13 }}>{t('racest.tyres.noStops')}</span>}
             {cur.stops.map((st, i) => (
               <div key={i} className="row" style={{ gap: 8 }}>
-                <span className="muted" style={{ fontSize: 13, width: 52 }}>Stopp {i + 1}</span>
-                <select aria-label={`Runde Stopp ${i + 1}`} value={st.lap} style={{ width: 'auto' }} onChange={(e) => setCur({ stops: cur.stops.map((x, j) => (j === i ? { ...x, lap: +e.target.value } : x)) })}>
+                <span className="muted" style={{ fontSize: 13, width: 52 }}>{t('racest.tyres.stopN', { n: i + 1 })}</span>
+                <select aria-label={t('racest.tyres.stopLapLabel', { n: i + 1 })} value={st.lap} style={{ width: 'auto' }} onChange={(e) => setCur({ stops: cur.stops.map((x, j) => (j === i ? { ...x, lap: +e.target.value } : x)) })}>
                   {Array.from({ length: laps }, (_, k) => k + 1).map((l) => (
-                    <option key={l} value={l}>Runde {l}</option>
+                    <option key={l} value={l}>{t('racest.tyres.lapN', { n: l })}</option>
                   ))}
                 </select>
-                <select aria-label={`Reifen Stopp ${i + 1}`} value={st.compound} style={{ width: 'auto' }} onChange={(e) => setCur({ stops: cur.stops.map((x, j) => (j === i ? { ...x, compound: e.target.value as Compound } : x)) })}>
+                <select aria-label={t('racest.tyres.stopTyreLabel', { n: i + 1 })} value={st.compound} style={{ width: 'auto' }} onChange={(e) => setCur({ stops: cur.stops.map((x, j) => (j === i ? { ...x, compound: e.target.value as Compound } : x)) })}>
                   {COMPOUND_KEYS.map((c) => (
                     <option key={c} value={c}>{COMPOUNDS[c].label}</option>
                   ))}
                 </select>
-                <button type="button" className="btn sm ghost" aria-label="Stopp entfernen" onClick={() => setCur({ stops: cur.stops.filter((_, j) => j !== i) })}>
+                <button type="button" className="btn sm ghost" aria-label={t('racest.tyres.removeStop')} onClick={() => setCur({ stops: cur.stops.filter((_, j) => j !== i) })}>
                   <Icon name="close" />
                 </button>
               </div>
             ))}
-            {isD1 && <p className="muted" style={{ fontSize: 12.5 }}>Wenn du selbst fährst, entscheidest du über Boxenstopps in der Runde mit der Taste P oder BOX. Dieser Plan gilt, wenn dein Fahrer übernimmt.</p>}
+            {isD1 && <p className="muted" style={{ fontSize: 12.5 }}>{t('racest.tyres.manualNote')}</p>}
           </Block>
         </>
       )}
 
       {tab === 'compounds' && (
-        <Block title="Reifen auf dieser Strecke" hint="Die Runden gelten für normale Fahrweise auf trockener Bahn.">
+        <Block title={t('racest.tyres.tableTitle')} hint={t('racest.tyres.tableHint')}>
           <div className="tbl-wrap">
             <table className="tbl">
               <thead>
-                <tr><th>Mischung</th><th>Einsatz</th><th className="num">Runden bis Abfall</th></tr>
+                <tr><th>{t('racest.tyres.colCompound')}</th><th>{t('racest.tyres.colUse')}</th><th className="num">{t('racest.tyres.colLaps')}</th></tr>
               </thead>
               <tbody>
                 {COMPOUND_KEYS.map((c) => (
                   <tr key={c}>
                     <td><span className="row" style={{ gap: 8 }}><TyreBadge c={c} sm /> {COMPOUNDS[c].label}</span></td>
                     <td className="muted" style={{ fontSize: 13 }}>{COMPOUNDS[c].desc}</td>
-                    <td className="num">{['inter', 'wet'].includes(c) ? 'je nach Nässe' : `ca. ${tyreLife(c).toFixed(1)}`}</td>
+                    <td className="num">{['inter', 'wet'].includes(c) ? t('racest.tyres.wetDepends') : t('racest.tyres.approx', { n: tyreLife(c) })}</td>
                   </tr>
                 ))}
               </tbody>
@@ -300,45 +302,45 @@ function Boxenmauer({ g, cur, setCur, driverSwitch, driver }: Props & { cur: Str
       <StationIntro
         id="pitwall"
         icon="flag"
-        lead="An der Boxenmauer gibst du deinen Fahrern die Taktik vor. Das gilt vor allem, wenn der Computer fährt."
+        lead={t('racest.tactics.intro.lead')}
         items={[
-          { title: 'Fahrstil wählen', text: 'Schonend spart Reifen, Sprit und Material. Angriff ist schneller, riskanter und verschleißt mehr.' },
-          { title: 'Zweikämpfe festlegen', text: 'Aggressivität und Überholstrategie bestimmen, wie mutig dein Fahrer überholt und verteidigt.' },
-          { title: 'Auf Wetter reagieren', text: 'Mit dem Schalter wechselt das Team bei Regen oder Trockenheit automatisch auf passende Reifen.' },
-          { title: 'Pro Fahrer planen', text: 'Oben wählst du, für welchen Fahrer du die Taktik einstellst.' },
+          { title: t('racest.tactics.intro.i1Title'), text: t('racest.tactics.intro.i1Text', { conserve: STYLE_LABELS.conserve, attack: STYLE_LABELS.attack }) },
+          { title: t('racest.tactics.intro.i2Title'), text: t('racest.tactics.intro.i2Text') },
+          { title: t('racest.tactics.intro.i3Title'), text: t('racest.tactics.intro.i3Text') },
+          { title: t('racest.tactics.intro.i4Title'), text: t('racest.tactics.intro.i4Text') },
         ]}
-        tip="Tipp: Starte mit „Ausgewogen“. Auf Strecken mit viel Reifenverschleiß lohnt sich „Schonend“."
+        tip={t('racest.tactics.intro.tip', { balanced: STYLE_LABELS.balanced, conserve: STYLE_LABELS.conserve })}
       />
       <TrackStrip w={w} weather />
       {driverSwitch}
 
-      <Block title="Fahrstil" hint="Wie schnell und wie schonend fährt dein Fahrer?">
+      <Block title={t('racest.tactics.styleTitle')} hint={t('racest.tactics.styleHint')}>
         <div className="field" id="strat-tactics">
           <Seg value={cur.style} onChange={(v) => setCur({ style: v })} options={(Object.keys(STYLE_LABELS) as (keyof typeof STYLE_LABELS)[]).map((k) => ({ v: k, l: STYLE_LABELS[k] }))} />
-          <span className="muted" style={{ fontSize: 12.5 }}>Schonend spart Reifen, Sprit und Material. Angriff ist schneller, riskanter und verschleißt mehr.</span>
+          <span className="muted" style={{ fontSize: 12.5 }}>{t('racest.tactics.styleNote', { conserve: STYLE_LABELS.conserve, attack: STYLE_LABELS.attack })}</span>
         </div>
       </Block>
 
-      <Block title="Zweikämpfe" hint="Wie mutig überholt und verteidigt dein Fahrer?">
+      <Block title={t('racest.tactics.duelTitle')} hint={t('racest.tactics.duelHint')}>
         <div className="field">
           <div className="row between">
-            <label htmlFor="aggr">Aggressivität</label>
+            <label htmlFor="aggr">{t('racest.tactics.aggression')}</label>
             <span className="num" style={{ fontSize: 13 }}>{cur.aggression}</span>
           </div>
           <input id="aggr" type="range" min={0} max={100} value={cur.aggression} onChange={(e) => setCur({ aggression: +e.target.value })} />
-          <div className="row between muted" style={{ fontSize: 11.5 }}>
-            <span>vorsichtig</span>
-            <span>riskant</span>
+          <div className="row between muted" style={{ fontSize: 12 }}>
+            <span>{t('racest.tactics.cautious')}</span>
+            <span>{t('racest.tactics.risky')}</span>
           </div>
         </div>
         <div className="field">
-          <span className="lbl">Überholstrategie</span>
+          <span className="lbl">{t('racest.tactics.overtake')}</span>
           <Seg value={cur.overtake} onChange={(v) => setCur({ overtake: v })} options={(Object.keys(OVERTAKE_LABELS) as (keyof typeof OVERTAKE_LABELS)[]).map((k) => ({ v: k, l: OVERTAKE_LABELS[k] }))} />
         </div>
       </Block>
 
-      <Block title="Wetter" hint="Was passiert, wenn es anfängt zu regnen oder wieder abtrocknet?">
-        <Switch id={`weather-${driver}`} on={cur.reactToWeather} onChange={(v) => setCur({ reactToWeather: v })} label="Bei Wetterwechsel automatisch auf passende Reifen wechseln" />
+      <Block title={t('racest.tactics.weatherTitle')} hint={t('racest.tactics.weatherHint')}>
+        <Switch id={`weather-${driver}`} on={cur.reactToWeather} onChange={(v) => setCur({ reactToWeather: v })} label={t('racest.tactics.weatherSwitch')} />
       </Block>
     </>
   );

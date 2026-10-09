@@ -3,6 +3,7 @@ import type { Compound, LogoKind, WeatherKind } from '../../types';
 import { COMPOUNDS, WEATHER_LABELS } from '../../data/catalog';
 import { TRACK_BY_ID } from '../../data/tracks';
 import { trackGeometry } from '../../game/weekend';
+import { t, useLang } from '../../i18n';
 import { money } from '../../game/util';
 import { sound } from '../../audio/sound';
 
@@ -71,6 +72,7 @@ export function Btn(props: ButtonHTMLAttributes<HTMLButtonElement> & { variant?:
 
 export function Money({ v, compact, sign }: { v: number; compact?: boolean; sign?: boolean }) {
   const cls = sign ? (v >= 0 ? 'good' : 'bad') : '';
+  useLang(); // neu zeichnen, wenn die Sprache wechselt
   return <span className={`num ${cls}`}>{sign && v > 0 ? '+' : ''}{money(v, compact)}</span>;
 }
 
@@ -96,10 +98,10 @@ export function StatLine({ label, value, max = 100, ghost, fmt }: { label: strin
 }
 
 export function TyreBadge({ c, sm }: { c: Compound; sm?: boolean }) {
-  const t = COMPOUNDS[c];
+  const comp = COMPOUNDS[c];
   return (
-    <span className={`tyre ${sm ? 'sm' : ''}`} style={{ color: t.color }} title={t.label}>
-      {t.short}
+    <span className={`tyre ${sm ? 'sm' : ''}`} style={{ color: comp.color }} title={comp.label}>
+      {comp.short}
     </span>
   );
 }
@@ -217,7 +219,7 @@ export function Logo({ kind, color, color2, short, size = 44 }: { kind: LogoKind
   })();
   const showText = short && !['flag', 'bolt', 'star'].includes(kind);
   return (
-    <svg width={size} height={size} viewBox="0 0 48 48" role="img" aria-label="Teamlogo" style={{ flex: 'none' }}>
+    <svg width={size} height={size} viewBox="0 0 48 48" role="img" aria-label={t('common.teamLogo')} style={{ flex: 'none' }}>
       {shape}
       {showText && (
         <text x="24" y={kind === 'chevron' ? 40 : kind === 'wing' ? 44 : 29} textAnchor="middle" fontFamily="Saira Condensed, Arial Narrow, sans-serif" fontWeight="800" fontSize={kind === 'chevron' || kind === 'wing' ? 9 : 12} fill={kind === 'wing' || kind === 'chevron' ? color2 : color2} letterSpacing="0.5">
@@ -237,9 +239,15 @@ export function Helmet({ color, color2, label }: { color: string; color2: string
 }
 
 export function Modal({ children, onClose, wide }: { children: ReactNode; onClose?: () => void; wide?: boolean }) {
+  useLang();
   return (
     <div className="modal-bg" onClick={(e) => e.target === e.currentTarget && onClose?.()}>
       <div className={`modal ${wide ? 'wide' : ''}`} role="dialog" aria-modal="true">
+        {onClose && (
+          <button type="button" className="modal-x" aria-label={t('app.common.close')} title={t('app.common.close')} onClick={onClose}>
+            <Icon name="close" size={18} />
+          </button>
+        )}
         {children}
       </div>
     </div>
@@ -281,5 +289,5 @@ export function Switch({ on, onChange, label, id }: { on: boolean; onChange: (v:
 }
 
 export function CountryTag({ code }: { code: string }) {
-  return <span className="pill" style={{ padding: '0 6px', fontSize: 11 }}>{code}</span>;
+  return <span className="pill" style={{ padding: '0 6px', fontSize: 12 }}>{code}</span>;
 }

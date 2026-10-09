@@ -4,12 +4,17 @@ import { DEFAULT_SETTINGS, SAVE_VERSION, emptyStats } from './state';
 import { MISSIONS, PLOTS } from './tycoon';
 import { TIPS } from '../data/tips';
 import { cloud } from './cloud';
+import { store } from '../platform/storage';
+import { LANG_KEY } from '../platform/prefs';
 
 const KEY = 'apex-rennstall-save';
 const BACKUP_KEY = 'apex-rennstall-save-backup';
 const DELETED_KEY = 'apex-rennstall-save-deleted';
 const SETTINGS_KEY = 'apex-rennstall-settings';
 let lastBackup = 0;
+
+/** Alle Schlüssel, die beim Start in einem Aufruf aus dem Plattformspeicher geladen werden */
+export const STORAGE_KEYS = [KEY, BACKUP_KEY, DELETED_KEY, SETTINGS_KEY, LANG_KEY];
 
 /** Spielstand als Text mit Zeitstempel (für Browser, Datei und Artifact-Speicher) */
 export function serialize(s: GameState, savedAt = Date.now()): string {
@@ -28,7 +33,7 @@ export function loadGame(): GameState | null {
   // Erst der aktuelle Stand, bei Beschädigung die Sicherheitskopie
   for (const key of [KEY, BACKUP_KEY]) {
     try {
-      const raw = localStorage.getItem(key);
+      const raw = store.get(key);
       if (!raw) continue;
       const g = migrate(JSON.parse(raw));
       if (g) return g;
@@ -44,13 +49,13 @@ export function saveGame(s: GameState): boolean {
     const now = Date.now();
     // Sicherheitskopie des vorherigen Stands, höchstens einmal pro Minute
     if (now - lastBackup > 60_000) {
-      const prev = localStorage.getItem(KEY);
-      if (prev) localStorage.setItem(BACKUP_KEY, prev);
+      const prev = store.get(KEY);
+      if (prev) store.set(BACKUP_KEY, prev);
       lastBackup = now;
     }
-    localStorage.setItem(KEY, serialize(s, now));
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(s.settings));
-    return true;
+    const ok = store.set(KEY, serialize(s, now));
+    store.set(SETTINGS_KEY, JSON.stringify(s.settings));
+    return ok;
   } catch {
     return false;
   }
@@ -59,10 +64,10 @@ export function saveGame(s: GameState): boolean {
 /** Bewusstes Löschen: Der Stand wandert in einen Papierkorb-Platz, damit man ihn wiederherstellen kann */
 export function clearGame() {
   try {
-    const raw = localStorage.getItem(KEY);
-    if (raw) localStorage.setItem(DELETED_KEY, raw);
-    localStorage.removeItem(KEY);
-    localStorage.removeItem(BACKUP_KEY);
+    const raw = store.get(KEY);
+    if (raw) store.set(DELETED_KEY, raw);
+    store.remove(KEY);
+    store.remove(BACKUP_KEY);
   } catch {
     /* nichts zu tun */
   }
@@ -71,7 +76,7 @@ export function clearGame() {
 
 export function deletedGame(): GameState | null {
   try {
-    const raw = localStorage.getItem(DELETED_KEY);
+    const raw = store.get(DELETED_KEY);
     return raw ? migrate(JSON.parse(raw)) : null;
   } catch {
     return null;
@@ -80,7 +85,7 @@ export function deletedGame(): GameState | null {
 
 export function forgetDeletedGame() {
   try {
-    localStorage.removeItem(DELETED_KEY);
+    store.remove(DELETED_KEY);
   } catch {
     /* nichts zu tun */
   }
@@ -118,7 +123,7 @@ export async function downloadSave(s: GameState): Promise<'saved' | 'declined' |
 
 export function loadSettings() {
   try {
-    const raw = localStorage.getItem(SETTINGS_KEY);
+    const raw = store.get(SETTINGS_KEY);
     if (raw) {
       const st = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
       if (!['chase', 'high', 'cockpit'].includes(st.camera)) {

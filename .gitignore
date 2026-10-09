@@ -4,3 +4,5 @@ dist-artifact/
 *.log
 .DS_Store
 artifact/
+dist-portal/
+*.zip

@@ -528,7 +528,7 @@ export class RaceRenderer {
       ctx.translate(c.x, c.y);
       if (this.opts.camera === 'rotate') ctx.rotate(this.camH + Math.PI / 2);
       ctx.scale(1 / this.zoom, 1 / this.zoom);
-      ctx.font = '600 11px "Chivo Mono", ui-monospace, monospace';
+      ctx.font = '600 12px "Chivo Mono", ui-monospace, monospace';
       ctx.textAlign = 'center';
       const label = c.cfg.short;
       const tw = ctx.measureText(label).width + 8;

@@ -1,5 +1,6 @@
 import { AI_TEAM_POOL, COUNTRIES, FIRST, LAST, SPONSOR_POOL } from '../data/names';
 import { STAFF_ROLES, TIERS } from '../data/catalog';
+import { m } from '../i18n';
 import type { CarStats, Driver, DriverStats, GameState, Region, Sponsor, SponsorGoal, Staff, StaffRole, Team } from '../types';
 import { clamp, gauss, pick, rand, randInt, shuffle } from './util';
 
@@ -67,13 +68,13 @@ export function makeDriver(quality: number, opts: { region?: Region; archetype?:
   const age = opts.age ?? (arch === 'rookie' ? randInt(16, 19) : randInt(19, 36));
   if (age > 30) s.experience = clamp(s.experience + (age - 30) * 3, 15, 99);
   const talent = clamp(Math.round((arch === 'rookie' ? q + rand(12, 32) : q + rand(-4, 14) - Math.max(0, age - 27) * 1.5)), 20, 99);
-  if (s.speed >= 72 && s.speed >= q + 6) traits.push('Schnell');
-  if (s.aggression >= 72) traits.push('Aggressiv');
-  if (s.consistency >= 72 && s.consistency >= q + 8) traits.push('Fehlerfrei');
-  if (s.wet >= 74) traits.push('Regenspezialist');
-  if (s.tyreMgmt >= 72 && s.tyreMgmt >= q + 8) traits.push('Reifenflüsterer');
-  if (s.reaction >= 76) traits.push('Blitzstarter');
-  if (age <= 19) traits.push('Nachwuchs');
+  if (s.speed >= 72 && s.speed >= q + 6) traits.push(m('gen.trait.fast'));
+  if (s.aggression >= 72) traits.push(m('gen.trait.aggressive'));
+  if (s.consistency >= 72 && s.consistency >= q + 8) traits.push(m('gen.trait.flawless'));
+  if (s.wet >= 74) traits.push(m('gen.trait.rainSpecialist'));
+  if (s.tyreMgmt >= 72 && s.tyreMgmt >= q + 8) traits.push(m('gen.trait.tyreWhisperer'));
+  if (s.reaction >= 76) traits.push(m('gen.trait.quickStarter'));
+  if (age <= 19) traits.push(m('gen.trait.prospect'));
   const d: Driver = {
     id: genId('d'),
     name,
@@ -109,13 +110,14 @@ export function driverSalary(d: Driver, tier: number) {
   return Math.round((base * TIERS[Math.min(tier, 2)].money) / 500) * 500;
 }
 
+// Schlüssel der Mitarbeiter-Eigenschaften (werden mit m() zu Text, der erst beim Anzeigen übersetzt wird)
 const STAFF_TRAITS: Record<StaffRole, string[]> = {
-  raceEngineer: ['Ruhiger Funk', 'Strategiefuchs', 'Datenverliebt'],
-  mechanic: ['Flinke Hände', 'Teamplayer', 'Perfektionist'],
-  chiefMechanic: ['Alter Hase', 'Organisationstalent', 'Sparfuchs'],
-  aeroEngineer: ['Windkanal-Guru', 'CFD-Spezialist', 'Kreativer Kopf'],
-  engineEngineer: ['Leistungsjäger', 'Haltbarkeitsprofi', 'Hybrid-Experte'],
-  dataAnalyst: ['Mustererkenner', 'Wetterfrosch', 'Talentscout'],
+  raceEngineer: ['gen.staffTrait.calmRadio', 'gen.staffTrait.strategyFox', 'gen.staffTrait.dataLover'],
+  mechanic: ['gen.staffTrait.quickHands', 'gen.staffTrait.teamPlayer', 'gen.staffTrait.perfectionist'],
+  chiefMechanic: ['gen.staffTrait.oldHand', 'gen.staffTrait.organizer', 'gen.staffTrait.thrifty'],
+  aeroEngineer: ['gen.staffTrait.windTunnelGuru', 'gen.staffTrait.cfdSpecialist', 'gen.staffTrait.creativeMind'],
+  engineEngineer: ['gen.staffTrait.powerHunter', 'gen.staffTrait.durabilityPro', 'gen.staffTrait.hybridExpert'],
+  dataAnalyst: ['gen.staffTrait.patternSpotter', 'gen.staffTrait.weatherWatcher', 'gen.staffTrait.talentScout'],
 };
 
 export function makeStaff(role: StaffRole, quality: number, tier = 0): Staff {
@@ -128,7 +130,7 @@ export function makeStaff(role: StaffRole, quality: number, tier = 0): Staff {
     role,
     skill,
     salary: staffSalary(skill, tier),
-    trait: Math.random() < 0.5 ? pick(STAFF_TRAITS[role]) : undefined,
+    trait: Math.random() < 0.5 ? m(pick(STAFF_TRAITS[role])) : undefined,
   };
 }
 
@@ -160,10 +162,11 @@ function goalFactor(goal: SponsorGoal) {
   return f;
 }
 
+/** Sponsorziel als m()-Text: jede Anzeige braucht tx(goalText(…)) */
 export function goalText(g: SponsorGoal) {
-  if (g.kind === 'finish') return g.value === 1 ? 'Rennsieg' : g.value === 3 ? 'Podium' : `Mindestens Platz ${g.value} im Rennen`;
-  if (g.kind === 'quali') return g.value === 1 ? 'Pole Position' : `Startplatz ${g.value} oder besser`;
-  return 'Beide Fahrer in den Punkten';
+  if (g.kind === 'finish') return g.value === 1 ? m('gen.goal.win') : g.value === 3 ? m('gen.goal.podium') : m('gen.goal.finish', { n: g.value });
+  if (g.kind === 'quali') return g.value === 1 ? m('gen.goal.pole') : m('gen.goal.grid', { n: g.value });
+  return m('gen.goal.bothPoints');
 }
 
 export function makeSponsor(state: Pick<GameState, 'tier' | 'reputation'>, slot: 'main' | 'secondary', difficulty?: number): Sponsor {

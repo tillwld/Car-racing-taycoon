@@ -1,5 +1,6 @@
 // Tycoon-Schicht: bebaubare Felder auf dem Teamgelände, passives Einkommen, Freischaltungen, Aufträge.
 import { TIPS } from '../data/tips';
+import { loc, m, mp, t, tx } from '../i18n';
 import type { GameState, PlotId } from '../types';
 import { book, news } from './state';
 
@@ -19,76 +20,57 @@ export interface PlotDef {
 }
 
 const races = (g: GameState) => g.stats.races;
-const has = (g: GameState, id: PlotId) => (g.plots[id] ?? 0) >= 1;
+
+/** Fläche mit übersetzten Textfeldern (Schlüssel tycoon.plot.<id>.name / blurb / unlocks), die Felder werden bei jedem Zugriff übersetzt */
+function plot(b: Omit<PlotDef, 'name' | 'blurb' | 'unlocks'>, withUnlocks = false): PlotDef {
+  const base: PlotDef = { ...b, name: '', blurb: '', ...(withUnlocks ? { unlocks: '' } : {}) };
+  return loc('tycoon.plot', base, withUnlocks ? ['name', 'blurb', 'unlocks'] : ['name', 'blurb']);
+}
 
 export const PLOTS: Record<PlotId, PlotDef> = {
-  kiosk: {
-    id: 'kiosk', name: 'Fan-Kiosk', kind: 'income', blurb: 'Getränke und Snacks für die Fans.',
-    costs: [4000, 9000, 20000, 42000, 90000], yields: [15, 32, 54, 82, 120],
-  },
-  fanshop: {
-    id: 'fanshop', name: 'Fanshop', kind: 'income', blurb: 'Trikots, Kappen und Modellautos.',
-    costs: [12000, 26000, 55000, 110000, 220000], yields: [24, 52, 88, 135, 195],
-  },
-  workshop: {
-    id: 'workshop', name: 'Werkstatt', kind: 'feature', blurb: 'Upgrades, Reparatur und Chassis.',
-    costs: [15000], unlocks: 'Upgrades, Reparatur, Chassis-Markt',
-  },
-  sponsorLounge: {
-    id: 'sponsorLounge', name: 'Sponsoren-Lounge', kind: 'feature', blurb: 'Sponsoren und ihre Ziele.',
-    costs: [20000], unlocks: 'Sponsoren-Verträge',
-  },
-  setupLab: {
-    id: 'setupLab', name: 'Prüfstand', kind: 'feature', blurb: 'Training und Fahrzeugabstimmung.',
-    costs: [18000], unlocks: 'Training und Abstimmung',
-  },
-  tireDepot: {
-    id: 'tireDepot', name: 'Reifenlager', kind: 'feature', blurb: 'Reifenwahl, Sprit und Boxenstopps.',
-    costs: [25000], unlocks: 'Planung von Reifen, Tankmenge und Boxenstopps',
-  },
-  grandstand: {
-    id: 'grandstand', name: 'Tribüne', kind: 'income', blurb: 'Zuschauer an der Teststrecke.',
-    costs: [45000, 100000, 210000, 420000, 800000], yields: [45, 100, 165, 250, 360],
-  },
-  staffOffice: {
-    id: 'staffOffice', name: 'Personalbüro', kind: 'feature', blurb: 'Mechaniker und Ingenieure einstellen.',
-    costs: [40000], unlocks: 'Mitarbeiter',
-  },
-  lounge: {
-    id: 'lounge', name: 'Fahrerlounge', kind: 'feature', blurb: 'Fahrer, Verträge und Akademie.',
-    costs: [35000], unlocks: 'Fahrer und Transfermarkt',
-  },
-  lab: {
-    id: 'lab', name: 'Forschungslabor', kind: 'feature', blurb: 'Neue Technik entwickeln.',
-    costs: [60000], unlocks: 'Forschungsbaum',
-  },
-  pitwall: {
-    id: 'pitwall', name: 'Boxenmauer', kind: 'feature', blurb: 'Taktik für deine Fahrer.',
-    costs: [70000], unlocks: 'Fahrstil, Aggressivität, Überholstrategie',
-  },
-  media: {
-    id: 'media', name: 'Mediazentrum', kind: 'income', blurb: 'Übertragungsrechte und Werbepartner.',
-    costs: [140000, 300000, 620000, 1200000, 2400000], yields: [80, 170, 280, 430, 640],
-  },
+  kiosk: plot({ id: 'kiosk', kind: 'income', costs: [4000, 9000, 20000, 42000, 90000], yields: [15, 32, 54, 82, 120] }),
+  fanshop: plot({ id: 'fanshop', kind: 'income', costs: [12000, 26000, 55000, 110000, 220000], yields: [24, 52, 88, 135, 195] }),
+  workshop: plot({ id: 'workshop', kind: 'feature', costs: [15000] }, true),
+  sponsorLounge: plot({ id: 'sponsorLounge', kind: 'feature', costs: [20000] }, true),
+  setupLab: plot({ id: 'setupLab', kind: 'feature', costs: [18000] }, true),
+  tireDepot: plot({ id: 'tireDepot', kind: 'feature', costs: [25000] }, true),
+  grandstand: plot({ id: 'grandstand', kind: 'income', costs: [45000, 100000, 210000, 420000, 800000], yields: [45, 100, 165, 250, 360] }),
+  staffOffice: plot({ id: 'staffOffice', kind: 'feature', costs: [40000] }, true),
+  lounge: plot({ id: 'lounge', kind: 'feature', costs: [35000] }, true),
+  lab: plot({ id: 'lab', kind: 'feature', costs: [60000] }, true),
+  pitwall: plot({ id: 'pitwall', kind: 'feature', costs: [70000] }, true),
+  media: plot({ id: 'media', kind: 'income', costs: [140000, 300000, 620000, 1200000, 2400000], yields: [80, 170, 280, 430, 640] }),
 };
+
+/** Name einer Fläche als Text für Spielstand/News/Buchungen (wird erst beim Anzeigen mit tx() übersetzt) */
+export const plotNameMsg = (id: PlotId) => m(`tycoon.plot.${id}.name`);
+
+/** Mehrere m()-Texte zu einem m()-Text verbinden (durch Zeilenumbruch oder Leerzeichen). Balanciert verschachtelt, damit der Text kompakt bleibt. */
+export function joinMsgs(parts: string[], sep: 'nl' | 'space' = 'nl'): string {
+  if (parts.length === 0) return '';
+  if (parts.length === 1) return parts[0];
+  const mid = Math.ceil(parts.length / 2);
+  return m(sep === 'nl' ? 'tycoon.join.nl' : 'tycoon.join.space', { a: joinMsgs(parts.slice(0, mid), sep), b: joinMsgs(parts.slice(mid), sep) });
+}
 
 /**
  * Aufbau-Reihenfolge: Es wird immer nur die nächste Anlage frei. Sie braucht die vorherige (gebaut) und eine Mindestzahl
  * gefahrener Rennen. So kommt alles nacheinander, jeweils mit eigener Erklärung, und nie mehrere neue Dinge auf einmal.
  */
+const stage = (id: PlotId, need: number) => loc('tycoon.aufbau', { id, races: need, why: '' }, ['why']);
 export const AUFBAU: { id: PlotId; races: number; why: string }[] = [
-  { id: 'kiosk', races: 0, why: 'Dein erstes Einkommen: Der Kiosk verdient von allein Geld.' },
-  { id: 'fanshop', races: 0, why: 'Mehr Einnahmen, damit du dir die Technik leisten kannst.' },
-  { id: 'workshop', races: 1, why: 'Hier machst du dein Auto schneller und hältst es in Schuss.' },
-  { id: 'sponsorLounge', races: 2, why: 'Sponsoren zahlen dir bei jedem Rennen Geld.' },
-  { id: 'setupLab', races: 3, why: 'Training und Abstimmung: Dein Auto auf die Strecke einstellen.' },
-  { id: 'grandstand', races: 3, why: 'Zuschauer an der Teststrecke bringen kräftig Geld.' },
-  { id: 'tireDepot', races: 4, why: 'Reifen, Tankmenge und Boxenstopps vor dem Rennen planen.' },
-  { id: 'lounge', races: 5, why: 'Fahrer verwalten: Verträge, Transfers und Nachwuchs.' },
-  { id: 'staffOffice', races: 6, why: 'Mechaniker und Ingenieure machen dein Team besser.' },
-  { id: 'lab', races: 7, why: 'Neue Technik entwickeln, die dauerhaft wirkt.' },
-  { id: 'pitwall', races: 8, why: 'Taktik für deinen Computer-Fahrer.' },
-  { id: 'media', races: 9, why: 'Die größte Einnahmequelle.' },
+  stage('kiosk', 0),
+  stage('fanshop', 0),
+  stage('workshop', 1),
+  stage('sponsorLounge', 2),
+  stage('setupLab', 3),
+  stage('grandstand', 3),
+  stage('tireDepot', 4),
+  stage('lounge', 5),
+  stage('staffOffice', 6),
+  stage('lab', 7),
+  stage('pitwall', 8),
+  stage('media', 9),
 ];
 
 /** Reihenfolge, in der Felder auf dem Gelände nacheinander frei werden */
@@ -99,22 +81,40 @@ export function nextPlot(g: GameState): PlotId | null {
   return PLOT_ORDER.find((p) => plotLevel(g, p) < 1) ?? null;
 }
 
-/** Was fehlt noch, bevor diese Anlage gebaut werden kann? Leer = kann gebaut werden. */
-export function plotBlockers(g: GameState, id: PlotId): string[] {
+/** Was fehlt noch, bevor diese Anlage gebaut werden kann? Als m()-Texte. Leer = kann gebaut werden. */
+function blockerMsgs(g: GameState, id: PlotId): string[] {
   const i = PLOT_ORDER.indexOf(id);
   const out: string[] = [];
   if (plotLevel(g, id) >= 1) return out;
   // Davor liegende Anlagen müssen stehen: gemeldet wird nur die erste fehlende
   const missing = PLOT_ORDER.slice(0, i).find((p) => plotLevel(g, p) < 1);
-  if (missing) out.push(`Baue zuerst: ${PLOTS[missing].name}.`);
+  if (missing) out.push(m('tycoon.req.buildFirst', { name: plotNameMsg(missing) }));
   const need = AUFBAU[i].races;
-  if (races(g) < need) out.push(need - races(g) === 1 ? 'Fahre noch 1 Rennen.' : `Fahre noch ${need - races(g)} Rennen.`);
+  if (races(g) < need) out.push(mp('tycoon.req.races', need - races(g)));
   return out;
+}
+
+/** Was fehlt noch, bevor diese Anlage gebaut werden kann? Leer = kann gebaut werden. (Anzeige-Texte in der aktuellen Sprache) */
+export function plotBlockers(g: GameState, id: PlotId): string[] {
+  return blockerMsgs(g, id).map(tx);
 }
 
 export function plotReqText(g: GameState, id: PlotId): string {
   return plotBlockers(g, id).join(' ');
 }
+
+/** Wie plotReqText, aber als m()-Text für gespeicherte Nachrichten (leer, wenn nichts fehlt) */
+export function plotReqMsg(g: GameState, id: PlotId): string {
+  return joinMsgs(blockerMsgs(g, id), 'space');
+}
+
+/** Hinweis für die nächste Anlage als m()-Text: was fehlt, sonst "jetzt baubar" */
+export function aufbauHintMsg(g: GameState, id: PlotId): string {
+  return plotReqMsg(g, id) || m('tycoon.path.buildable');
+}
+
+/** Begründung einer Anlage der Aufbau-Reihenfolge als m()-Text */
+export const aufbauWhyMsg = (id: PlotId) => m(`tycoon.aufbau.${id}.why`);
 
 export const START_MONEY = 20000;
 const BASE_GRANT = 8; // Grundförderung pro Sekunde
@@ -141,7 +141,7 @@ export function plotCost(g: GameState, id: PlotId): number | null {
 
 /** Ausbaustufen einer schon gebauten Anlage sind immer möglich, eine neue braucht die Voraussetzungen der Reihenfolge */
 export function plotAvailable(g: GameState, id: PlotId) {
-  return plotLevel(g, id) >= 1 || plotBlockers(g, id).length === 0;
+  return plotLevel(g, id) >= 1 || blockerMsgs(g, id).length === 0;
 }
 
 /** Sichtbar sind alle gebauten Felder und genau das nächste der Reihenfolge */
@@ -156,7 +156,7 @@ export function aufbauPath(g: GameState): { id: PlotId; name: string; state: 'bu
     id: a.id,
     name: PLOTS[a.id].name,
     state: plotLevel(g, a.id) >= 1 ? 'built' : a.id === next ? 'next' : 'later',
-    text: a.id === next ? (plotReqText(g, a.id) || 'Jetzt baubar: Stell dich auf die leuchtende Fläche.') : '',
+    text: a.id === next ? (plotReqText(g, a.id) || t('tycoon.path.buildable')) : '',
     why: a.why,
   }));
 }
@@ -172,10 +172,10 @@ export function plotYield(g: GameState, id: PlotId, level = plotLevel(g, id)) {
 }
 
 export function incomeParts(g: GameState): { label: string; perSec: number; plot?: PlotId }[] {
-  const out: { label: string; perSec: number; plot?: PlotId }[] = [{ label: 'Förderung des Verbands', perSec: BASE_GRANT * tierMul(g) }];
+  const out: { label: string; perSec: number; plot?: PlotId }[] = [{ label: t('tycoon.income.grant'), perSec: BASE_GRANT * tierMul(g) }];
   for (const id of PLOT_ORDER) {
     const y = plotYield(g, id);
-    if (y > 0) out.push({ label: `${PLOTS[id].name} (Stufe ${plotLevel(g, id)})`, perSec: y, plot: id });
+    if (y > 0) out.push({ label: t('tycoon.income.plotLevel', { name: PLOTS[id].name, level: plotLevel(g, id) }), perSec: y, plot: id });
   }
   return out;
 }
@@ -237,17 +237,17 @@ export function currentTip(g: GameState): string | null {
 export function buyPlot(s: GameState, id: PlotId): string | null {
   const d = PLOTS[id];
   const lvl = plotLevel(s, id);
-  if (lvl >= d.costs.length) return 'Diese Anlage ist voll ausgebaut.';
+  if (lvl >= d.costs.length) return t('tycoon.buy.maxed');
   if (lvl === 0 && !plotAvailable(s, id)) return plotReqText(s, id);
   const cost = plotCost(s, id) as number;
-  if (s.money < cost) return 'Dafür fehlt noch Geld.';
-  book(s, lvl === 0 ? `Gebaut: ${d.name}` : `Ausbau: ${d.name} auf Stufe ${lvl + 1}`, -cost, 'facility');
+  if (s.money < cost) return t('tycoon.buy.noMoney');
+  book(s, lvl === 0 ? m('tycoon.buy.built', { name: plotNameMsg(id) }) : m('tycoon.buy.upgraded', { name: plotNameMsg(id), level: lvl + 1 }), -cost, 'facility');
   s.plots[id] = lvl + 1;
   if (lvl === 0) {
     queueTip(s, `plot_${id}`);
     if (d.kind === 'income') queueTip(s, 'income');
-    news(s, `${d.name} ist fertig gebaut.`, 'good');
-  } else news(s, `${d.name} wurde auf Stufe ${lvl + 1} ausgebaut.`, 'good');
+    news(s, m('tycoon.news.built', { name: plotNameMsg(id) }), 'good');
+  } else news(s, m('tycoon.news.upgraded', { name: plotNameMsg(id), level: lvl + 1 }), 'good');
   return null;
 }
 
@@ -267,28 +267,31 @@ export interface Mission {
 const built = (id: PlotId) => (g: GameState) => plotLevel(g, id) >= 1;
 const buildable = (id: PlotId) => (g: GameState) => plotAvailable(g, id);
 
+/** Auftrag mit übersetztem Text (Schlüssel tycoon.mission.<id>.text) */
+const mission = (def: Omit<Mission, 'text'>): Mission => loc('tycoon.mission', { ...def, text: '' }, ['text']);
+
 export const MISSIONS: Mission[] = [
-  { id: 'drive', text: 'Fahre eine Runde auf der Teststrecke', target: 'track', reward: 1500, done: (g) => (g.flags.testLaps ?? 0) >= 1 },
-  { id: 'kiosk', text: 'Baue den Fan-Kiosk: Stell dich auf die leuchtende Fläche', target: 'kiosk', reward: 0, done: built('kiosk') },
-  { id: 'fanshop', text: 'Baue den Fanshop', target: 'fanshop', reward: 0, done: built('fanshop'), avail: buildable('fanshop') },
-  { id: 'race1', text: 'Fahre dein erstes Rennen am Team-Transporter', target: 'truck', reward: 8000, done: (g) => g.stats.races >= 1 },
-  { id: 'workshop', text: 'Baue die Werkstatt', target: 'workshop', reward: 0, done: built('workshop'), avail: buildable('workshop') },
-  { id: 'upgrade', text: 'Starte ein Upgrade in der Werkstatt', target: 'garage', reward: 4000, done: (g) => g.stats.upgradesDone >= 1 || g.developments.some((d) => d.kind === 'part'), avail: built('workshop') },
-  { id: 'sponsors', text: 'Baue die Sponsoren-Lounge', target: 'sponsorLounge', reward: 0, done: built('sponsorLounge'), avail: buildable('sponsorLounge') },
-  { id: 'setupLab', text: 'Baue den Prüfstand für Training und Abstimmung', target: 'setupLab', reward: 0, done: built('setupLab'), avail: buildable('setupLab') },
-  { id: 'practice', text: 'Fahre oder simuliere ein Training und stelle dein Auto am Prüfstand ein', target: 'setupLab', reward: 3000, done: (g) => !!g.flags.practiced, avail: built('setupLab') },
-  { id: 'stand', text: 'Baue die Tribüne', target: 'grandstand', reward: 0, done: built('grandstand'), avail: buildable('grandstand') },
-  { id: 'tires', text: 'Baue das Reifenlager', target: 'tireDepot', reward: 0, done: built('tireDepot'), avail: buildable('tireDepot') },
-  { id: 'points', text: 'Hole deine ersten Meisterschaftspunkte (Top 10)', target: 'truck', reward: 12000, done: (g) => g.stats.points > 0 },
-  { id: 'lounge', text: 'Baue die Fahrerlounge', target: 'lounge', reward: 0, done: built('lounge'), avail: buildable('lounge') },
-  { id: 'staff', text: 'Baue das Personalbüro und stelle einen Mechaniker ein', target: 'staffOffice', reward: 6000, done: (g) => plotLevel(g, 'staffOffice') >= 1 && !!g.staff.mechanic, avail: buildable('staffOffice') },
-  { id: 'lab', text: 'Baue das Forschungslabor', target: 'lab', reward: 0, done: built('lab'), avail: buildable('lab') },
-  { id: 'research', text: 'Starte ein Forschungsprojekt', target: 'lab', reward: 5000, done: (g) => g.developments.some((d) => d.kind === 'research') || Object.keys(g.research).length > 0, avail: built('lab') },
-  { id: 'podium', text: 'Fahre aufs Podium', target: 'truck', reward: 30000, done: (g) => g.stats.podiums >= 1 },
-  { id: 'pitwall', text: 'Baue die Boxenmauer', target: 'pitwall', reward: 0, done: built('pitwall'), avail: buildable('pitwall') },
-  { id: 'season', text: 'Beende deine erste Saison', target: 'truck', reward: 60000, done: (g) => g.history.length >= 1 || !!g.seasonEnd },
-  { id: 'media', text: 'Baue das Mediazentrum', target: 'media', reward: 0, done: built('media'), avail: buildable('media') },
-  { id: 'win', text: 'Gewinne ein Rennen', target: 'truck', reward: 80000, done: (g) => g.stats.wins >= 1 },
+  mission({ id: 'drive', target: 'track', reward: 1500, done: (g) => (g.flags.testLaps ?? 0) >= 1 }),
+  mission({ id: 'kiosk', target: 'kiosk', reward: 0, done: built('kiosk') }),
+  mission({ id: 'fanshop', target: 'fanshop', reward: 0, done: built('fanshop'), avail: buildable('fanshop') }),
+  mission({ id: 'race1', target: 'truck', reward: 8000, done: (g) => g.stats.races >= 1 }),
+  mission({ id: 'workshop', target: 'workshop', reward: 0, done: built('workshop'), avail: buildable('workshop') }),
+  mission({ id: 'upgrade', target: 'garage', reward: 4000, done: (g) => g.stats.upgradesDone >= 1 || g.developments.some((d) => d.kind === 'part'), avail: built('workshop') }),
+  mission({ id: 'sponsors', target: 'sponsorLounge', reward: 0, done: built('sponsorLounge'), avail: buildable('sponsorLounge') }),
+  mission({ id: 'setupLab', target: 'setupLab', reward: 0, done: built('setupLab'), avail: buildable('setupLab') }),
+  mission({ id: 'practice', target: 'setupLab', reward: 3000, done: (g) => !!g.flags.practiced, avail: built('setupLab') }),
+  mission({ id: 'stand', target: 'grandstand', reward: 0, done: built('grandstand'), avail: buildable('grandstand') }),
+  mission({ id: 'tires', target: 'tireDepot', reward: 0, done: built('tireDepot'), avail: buildable('tireDepot') }),
+  mission({ id: 'points', target: 'truck', reward: 12000, done: (g) => g.stats.points > 0 }),
+  mission({ id: 'lounge', target: 'lounge', reward: 0, done: built('lounge'), avail: buildable('lounge') }),
+  mission({ id: 'staff', target: 'staffOffice', reward: 6000, done: (g) => plotLevel(g, 'staffOffice') >= 1 && !!g.staff.mechanic, avail: buildable('staffOffice') }),
+  mission({ id: 'lab', target: 'lab', reward: 0, done: built('lab'), avail: buildable('lab') }),
+  mission({ id: 'research', target: 'lab', reward: 5000, done: (g) => g.developments.some((d) => d.kind === 'research') || Object.keys(g.research).length > 0, avail: built('lab') }),
+  mission({ id: 'podium', target: 'truck', reward: 30000, done: (g) => g.stats.podiums >= 1 }),
+  mission({ id: 'pitwall', target: 'pitwall', reward: 0, done: built('pitwall'), avail: buildable('pitwall') }),
+  mission({ id: 'season', target: 'truck', reward: 60000, done: (g) => g.history.length >= 1 || !!g.seasonEnd }),
+  mission({ id: 'media', target: 'media', reward: 0, done: built('media'), avail: buildable('media') }),
+  mission({ id: 'win', target: 'truck', reward: 80000, done: (g) => g.stats.wins >= 1 }),
 ];
 
 export function missionDone(g: GameState, id: string) {
@@ -297,30 +300,31 @@ export function missionDone(g: GameState, id: string) {
 
 /** Die nächsten offenen Aufträge (höchstens n) */
 export function activeMissions(g: GameState, n = 3): Mission[] {
-  return MISSIONS.filter((m) => !missionDone(g, m.id) && (!m.avail || m.avail(g))).slice(0, n);
+  return MISSIONS.filter((mi) => !missionDone(g, mi.id) && (!mi.avail || mi.avail(g))).slice(0, n);
 }
 
-/** Schließt erledigte Aufträge ab und zahlt die Belohnung. Gibt die Texte der neu erledigten zurück. */
+/** Schließt erledigte Aufträge ab und zahlt die Belohnung. Gibt die Texte der neu erledigten zurück (für sofortige Toasts, in der aktuellen Sprache). */
 export function claimMissions(s: GameState): string[] {
   const out: string[] = [];
   const map = (s.flags.missions ??= {}) as Record<string, boolean>;
-  for (const m of MISSIONS) {
-    if (map[m.id] || !m.done(s)) continue;
-    map[m.id] = true;
-    if (m.reward > 0) {
-      book(s, `Auftrag erfüllt: ${m.text}`, m.reward, 'bonus');
-      out.push(`Auftrag erledigt: +${m.reward.toLocaleString('de-DE')} €`);
-    } else out.push('Auftrag erledigt');
+  for (const mi of MISSIONS) {
+    if (map[mi.id] || !mi.done(s)) continue;
+    map[mi.id] = true;
+    if (mi.reward > 0) {
+      book(s, m('tycoon.claim.booking', { text: m(`tycoon.mission.${mi.id}.text`) }), mi.reward, 'bonus');
+      out.push(t('tycoon.claim.toastReward', { amount: mi.reward }));
+    } else out.push(t('tycoon.claim.toast'));
   }
   return out;
 }
 
 export function hasPendingMissions(g: GameState) {
   const map = (g.flags.missions ?? {}) as Record<string, boolean>;
-  return MISSIONS.some((m) => !map[m.id] && m.done(g));
+  return MISSIONS.some((mi) => !map[mi.id] && mi.done(g));
 }
 
 // ---------- Einnahmen während der Abwesenheit ----------
+// Der Betrag liegt als Zahl in flags.offline und wird beim Anzeigen formatiert (kein Text im Spielstand).
 export function applyOffline(s: GameState) {
   const now = Date.now();
   const last = s.lastTick || now;
@@ -340,7 +344,7 @@ export function applyOffline(s: GameState) {
 // ---------- Teststrecke ----------
 export const FREE_LAP_CAP = 6;
 
-/** Zahlt Prämien für eine Fahrt auf der Teststrecke. Gibt die Abrechnung zurück. */
+/** Zahlt Prämien für eine Fahrt auf der Teststrecke. Gibt die Abrechnung zurück (Labels sind m()-Texte, beim Anzeigen mit tx() auflösen). */
 export function freeDriveReward(s: GameState, trackId: string, laps: number[]): { label: string; amount: number }[] {
   const lines: { label: string; amount: number }[] = [];
   if (!laps.length) return lines;
@@ -348,15 +352,14 @@ export function freeDriveReward(s: GameState, trackId: string, laps: number[]): 
   s.flags.testLaps = (s.flags.testLaps ?? 0) + laps.length;
   const counted = Math.min(FREE_LAP_CAP, laps.length);
   const lapPay = Math.round(600 * mul) * counted;
-  lines.push({ label: `${counted} Runden gefahren`, amount: lapPay });
+  lines.push({ label: mp('tycoon.free.laps', counted), amount: lapPay });
   const best = Math.min(...laps);
   const tb = (s.flags.testBest ??= {}) as Record<string, number>;
   const prev = tb[trackId];
-  if (!prev) lines.push({ label: 'Erste Bestzeit auf dieser Strecke', amount: Math.round(1500 * mul) });
-  else if (best < prev - 0.001) lines.push({ label: `Neue Bestzeit (${(prev - best).toFixed(2)} s schneller)`, amount: Math.round(Math.min(2500, 500 + (prev - best) * 400) * mul) });
+  if (!prev) lines.push({ label: m('tycoon.free.firstBest'), amount: Math.round(1500 * mul) });
+  else if (best < prev - 0.001) lines.push({ label: m('tycoon.free.newBest', { diff: prev - best }), amount: Math.round(Math.min(2500, 500 + (prev - best) * 400) * mul) });
   if (!prev || best < prev) tb[trackId] = best;
   if (!s.stats.bestLaps[trackId] || best < s.stats.bestLaps[trackId]) s.stats.bestLaps[trackId] = best;
-  for (const l of lines) book(s, `Teststrecke: ${l.label}`, l.amount, 'prize');
+  for (const l of lines) book(s, m('tycoon.free.booking', { label: l.label }), l.amount, 'prize');
   return lines;
 }
-

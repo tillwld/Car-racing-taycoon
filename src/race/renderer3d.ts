@@ -10,6 +10,7 @@ import { drawMiniPit } from './miniPit';
 import { nearestIndexGlobal, pointAt, wrapIndex, type TrackGeometry } from './trackGeometry';
 import type { TrackDef, WeatherKind } from '../types';
 import { COMPOUNDS } from '../data/catalog';
+import { t } from '../i18n';
 import * as T from './three/textures';
 import { buildCar, makeSharedAssets, type CarParts, type SharedCarAssets } from './three/carModel';
 
@@ -681,11 +682,11 @@ export class RaceRenderer3D {
       const o = Math.abs(outerR(rel));
       return side * Math.max(o + gap, hw + 3.4);
     };
-    banner(-125, beside(-125, 1.8), 2.9, 8, 1.7, 'BOXENEINFAHRT', '#101418', '#ffd23a');
+    banner(-125, beside(-125, 1.8), 2.9, 8, 1.7, t('render.sign.pitEntry'), '#101418', '#ffd23a');
     roundSign(-62, beside(-62, 1.7), 1.7, T.pitSignTexture(side), true);
     roundSign(-6, beside(-6, 1.6), 1.45, T.speedSignTexture(String(PIT_KMH)));
     // Ausfahrt: Tafel hinter den Garagen-Toren, Ende des Tempolimits kurz vor dem Einmünden
-    banner(xs - 28, side * (hw + PIT.door + 1.4), 2.6, 5.6, 1.3, 'AUSFAHRT', '#101418', '#6ee7a8');
+    banner(xs - 28, side * (hw + PIT.door + 1.4), 2.6, 5.6, 1.3, t('render.sign.pitExit'), '#101418', '#6ee7a8');
     roundSign(tot - 22, beside(tot - 22, 1.7), 1.45, T.endLimitTexture(String(PIT_KMH)));
 
     // Fahrbahnpfeile in der Zufahrt, Leitfässer an der Spitze der Boxenmauer
@@ -816,7 +817,7 @@ export class RaceRenderer3D {
     beam.position.y = 7.4;
     beam.castShadow = true;
     grp.add(beam);
-    const label = T.bannerTexture('START · ZIEL', '#14181b', '#f4f4f4');
+    const label = T.bannerTexture(t('render.sign.startFinish'), '#14181b', '#f4f4f4');
     for (const f of [-1, 1]) {
       const bp = new THREE.Mesh(new THREE.PlaneGeometry(span * 2 - 1, 1.5), new THREE.MeshBasicMaterial({ map: label }));
       bp.position.set(f * 0.72, 7.4, 0);
@@ -886,7 +887,7 @@ export class RaceRenderer3D {
     const g = this.geo;
     const n = g.n;
     const wall = g.halfWidth + this.track.runoff;
-    const texts: { t: string; bg: string; fg: string }[] = [{ t: 'APEX RENNSTALL', bg: '#101418', fg: '#ff6a1a' }, { t: this.track.name.toUpperCase(), bg: this.track.flag[0], fg: '#ffffff' }];
+    const texts: { t: string; bg: string; fg: string }[] = [{ t: t('render.sign.game').toUpperCase(), bg: '#101418', fg: '#ff6a1a' }, { t: this.track.name.toUpperCase(), bg: this.track.flag[0], fg: '#ffffff' }];
     const seen = new Set<string>();
     for (const c of this.eng.cars) {
       if (seen.has(c.cfg.teamId)) continue;

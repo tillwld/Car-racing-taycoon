@@ -1,13 +1,14 @@
 // Rennwochenende: Wetter, Strategie, Aufbau der Rennkonfiguration, Qualifying-Simulation, Ergebnisauswertung.
 import { POINTS, PRIZE, TIERS, TEAM_SEASON_PRIZE } from '../data/catalog';
 import { TRACK_BY_ID } from '../data/tracks';
+import { m } from '../i18n';
 import { buildTrack, compilePolygon, type TrackGeometry } from '../race/trackGeometry';
 import { RaceEngine, type Damage, type EntryConfig, type RaceConfig, type SessionMode } from '../race/engine';
 import { bestCompoundFor, buildCarParams, WETNESS } from '../race/params';
 import type { Compound, ConditionKey, Driver, GameState, RaceResult, ResultEntry, Setup, Strategy, Team, TrackDef, WeatherKind, WeatherSegment, Weekend } from '../types';
 import { pitCrewTime, playerCarStats, researchExtras, staffSkill } from './carModel';
 import { allTeams, computeStandings } from './season';
-import { book, bookCapture, news, playerDrivers, refreshMarkets, tickDevelopments, unlock } from './state';
+import { book, bookCapture, cat, news, playerDrivers, refreshMarkets, tickDevelopments, unlock } from './state';
 import { driverSalary, makeAITeams, makeDriver, goalText } from './generators';
 import { clamp, gauss, pick, rand } from './util';
 import { maybeGenerateEvents } from './events';
@@ -157,15 +158,15 @@ export function practiceFeedback(s: GameState): string[] {
   const out: string[] = [];
   const tol = 6 + (100 - w.setupKnowledge) * 0.25;
   const msgs: Record<keyof Setup, [string, string]> = {
-    wing: ['Das Auto rutscht in schnellen Kurven – mehr Abtrieb würde helfen.', 'Auf den Geraden fehlt Topspeed – weniger Flügel probieren.'],
-    gearing: ['Die Übersetzung ist zu lang, beim Herausbeschleunigen fehlt Zug.', 'Wir hängen zu früh im Begrenzer – längere Übersetzung.'],
-    suspension: ['Das Auto ist zu weich und träge in den Wechselkurven.', 'Das Auto ist zu hart, wir verlieren Grip über die Randsteine.'],
+    wing: [m('weekend.practice.wingLow'), m('weekend.practice.wingHigh')],
+    gearing: [m('weekend.practice.gearingLow'), m('weekend.practice.gearingHigh')],
+    suspension: [m('weekend.practice.suspensionLow'), m('weekend.practice.suspensionHigh')],
   };
   for (const key of ['wing', 'gearing', 'suspension'] as (keyof Setup)[]) {
     const diff = st[key] - t.ideal[key];
     if (Math.abs(diff) > tol) out.push(diff < 0 ? msgs[key][0] : msgs[key][1]);
   }
-  if (!out.length) out.push('Fahrer: „Das Auto fühlt sich richtig gut an!“');
+  if (!out.length) out.push(m('weekend.practice.good'));
   return out;
 }
 
@@ -360,7 +361,7 @@ export function finishQuali(s: GameState, times: Record<string, number>, playerD
   const pd = s.team.driverIds;
   const best = Math.min(...pd.map((id) => w.grid.indexOf(id) + 1).filter((x) => x > 0));
   if (best === 1) {
-    news(s, `Pole Position für ${s.team.name}!`, 'good');
+    news(s, m('weekend.news.pole', { team: s.team.name }), 'good');
   }
 }
 
@@ -399,7 +400,7 @@ export function outcomeFromEngine(eng: RaceEngine, playerDrove: boolean, wasRain
     time: c.finished ? c.finishTime : 0,
     bestLap: isFinite(c.bestLap) ? c.bestLap : 0,
     dnf: c.dnf || !c.finished,
-    dnfReason: c.dnf ? c.dnfReason : c.finished ? '' : 'Nicht gewertet',
+    dnfReason: c.dnf ? c.dnfReason : c.finished ? '' : m('weekend.dnf.notClassified'),
     pits: c.pits,
     finished: c.finished,
     damage: { ...c.damage },
@@ -489,7 +490,7 @@ function applyRaceResultInner(s: GameState, out: RaceOutcome): RaceResult {
       else repDelta -= 0.2;
       if (e.points > 0) unlock(s, 'first_points');
       const prize = Math.round((PRIZE[e.pos - 1] ?? 4000) * money);
-      book(s, `Preisgeld P${e.pos} (${d?.name ?? ''})`, prize, 'prize');
+      book(s, m('weekend.ledger.prize', { pos: e.pos, name: d?.name ?? '' }), prize, 'prize');
     }
     if (e.grid === 1) {
       st.poles++;
@@ -520,9 +521,9 @@ function applyRaceResultInner(s: GameState, out: RaceOutcome): RaceResult {
   const bothPoints = mine.length >= 2 && mine.every((e) => !e.dnf && e.pos <= 10);
   for (const sp of [...s.sponsors]) {
     const met = sp.goal.kind === 'finish' ? bestFinish <= sp.goal.value : sp.goal.kind === 'quali' ? bestGrid <= sp.goal.value : bothPoints;
-    book(s, `Sponsor ${sp.name}`, sp.perRace, 'sponsor');
+    book(s, m('weekend.ledger.sponsor', { name: sp.name }), sp.perRace, 'sponsor');
     if (met) {
-      book(s, `Zielbonus ${sp.name}`, sp.goalBonus, 'bonus');
+      book(s, m('weekend.ledger.goalBonus', { name: sp.name }), sp.goalBonus, 'bonus');
       sp.satisfaction = clamp(sp.satisfaction + 8, 0, 100);
       sp.misses = 0;
     } else {
@@ -534,41 +535,41 @@ function applyRaceResultInner(s: GameState, out: RaceOutcome): RaceResult {
     if (sp.misses >= 3 || sp.satisfaction < 15) {
       s.sponsors = s.sponsors.filter((x) => x.id !== sp.id);
       repDelta -= 2;
-      news(s, `${sp.name} steigt aus: Ziel „${goalText(sp.goal)}“ zu oft verfehlt.`, 'bad');
+      news(s, m('weekend.news.sponsorQuit', { name: sp.name, goal: goalText(sp.goal) }), 'bad');
     } else if (sp.races <= 0) {
       s.sponsors = s.sponsors.filter((x) => x.id !== sp.id);
-      news(s, `Vertrag mit ${sp.name} ist ausgelaufen.`, 'neutral');
-      managerSay(s, `Der Vertrag mit ${sp.name} ist ausgelaufen. Neue Angebote findest du in der Sponsoren-Lounge.`, { actions: [{ screen: 'sponsors', label: 'Zu den Sponsoren' }] });
+      news(s, m('weekend.news.sponsorExpired', { name: sp.name }), 'neutral');
+      managerSay(s, m('weekend.manager.sponsorExpired', { name: sp.name }), { actions: [{ screen: 'sponsors', label: m('weekend.manager.toSponsors') }] });
     }
   }
   // Herausforderung aus Ereignis
   if (s.flags.challenge) {
     const ch = s.flags.challenge as { target: number; reward: number; penalty: number; name: string };
     if (bestFinish <= ch.target) {
-      book(s, `Sonderbonus ${ch.name}`, ch.reward, 'event');
-      news(s, `Sonderbonus von ${ch.name} kassiert!`, 'good');
+      book(s, m('weekend.ledger.specialBonus', { name: ch.name }), ch.reward, 'event');
+      news(s, m('weekend.news.bonusCollected', { name: ch.name }), 'good');
     } else {
       repDelta -= ch.penalty;
-      news(s, `Sonderziel von ${ch.name} verfehlt.`, 'bad');
+      news(s, m('weekend.news.bonusMissed', { name: ch.name }), 'bad');
     }
     delete s.flags.challenge;
   }
   if (s.flags.bold) {
     if (bestFinish > 10) {
       repDelta -= 5;
-      news(s, 'Nach der Kampfansage lacht die Presse über das Ergebnis.', 'bad');
+      news(s, m('weekend.news.boldFail'), 'bad');
     }
     delete s.flags.bold;
   }
 
   // Kosten
-  for (const d of playerDrivers(s)) book(s, `Gehalt ${d.name}`, -d.salary, 'salary');
+  for (const d of playerDrivers(s)) book(s, m('weekend.ledger.salary', { name: d.name }), -d.salary, 'salary');
   for (const id of s.academy) {
     const d = s.drivers[id];
-    if (d) book(s, `Akademie ${d.name}`, -d.salary, 'salary');
+    if (d) book(s, m('weekend.ledger.academy', { name: d.name }), -d.salary, 'salary');
   }
-  for (const stf of Object.values(s.staff)) if (stf) book(s, `Gehalt ${stf.name}`, -stf.salary, 'staff');
-  book(s, `Reisekosten ${t.name}`, -TIERS[s.tier].travel, 'travel');
+  for (const stf of Object.values(s.staff)) if (stf) book(s, m('weekend.ledger.salary', { name: stf.name }), -stf.salary, 'staff');
+  book(s, m('weekend.ledger.travel', { track: t.name }), -TIERS[s.tier].travel, 'travel');
 
   s.reputation = clamp(Math.round((s.reputation + repDelta) * 10) / 10, 0, 100);
 
@@ -611,8 +612,8 @@ function applyRaceResultInner(s: GameState, out: RaceOutcome): RaceResult {
       d.teamId = null;
       d.salary = driverSalary(d, s.tier);
       s.driverMarket.push(d.id);
-      news(s, `${d.name} hat das Team nach Vertragsende verlassen!`, 'bad');
-      managerSay(s, `${d.name} hat das Team nach Vertragsende verlassen. Auf dem Transfermarkt in der Fahrerlounge findest du Ersatz.`, { actions: [{ screen: 'drivers', label: 'Zur Fahrerlounge' }] });
+      news(s, m('weekend.news.contractEnd', { name: d.name }), 'bad');
+      managerSay(s, m('weekend.manager.contractEnd', { name: d.name }), { actions: [{ screen: 'drivers', label: m('weekend.manager.toDrivers') }] });
     }
   }
 
@@ -625,8 +626,12 @@ function applyRaceResultInner(s: GameState, out: RaceOutcome): RaceResult {
     if (s.sponsorOffers.length < 5) refreshMarkets(s);
   }
 
-  const posText = mine.map((e) => `${s.drivers[e.driverId]?.name ?? ''}: ${e.dnf ? 'Ausfall' : 'P' + e.pos}`).join(', ');
-  news(s, `${t.name}: ${posText}`, bestFinish <= 3 ? 'good' : bestFinish <= 10 ? 'neutral' : 'bad');
+  // Ergebniszeile: je Fahrer ein m()-Text, damit "Ausfall"/"DNF" mit der Sprache wechselt
+  const posParts = mine.map((e) => {
+    const name = s.drivers[e.driverId]?.name ?? '';
+    return e.dnf ? m('weekend.news.resultDnf', { name }) : m('weekend.news.resultPos', { name, pos: e.pos });
+  });
+  news(s, posParts.length > 1 ? m('weekend.news.result2', { track: t.name, a: posParts[0], b: posParts[1] }) : m('weekend.news.result1', { track: t.name, a: posParts[0] ?? '' }), bestFinish <= 3 ? 'good' : bestFinish <= 10 ? 'neutral' : 'bad');
 
   s.weekend = null;
   s.round++;
@@ -669,7 +674,7 @@ function endSeason(s: GameState) {
   const myDrivers = st.drivers.filter((d) => d.teamId === 'player');
   const driverPos = myDrivers.length ? st.drivers.indexOf(myDrivers[0]) + 1 : 0;
   const prize = seasonPrize(s, teamPos);
-  book(s, `Saisonprämie Platz ${teamPos}`, prize, 'prize');
+  book(s, m('weekend.ledger.seasonPrize', { pos: teamPos }), prize, 'prize');
   const champ = st.drivers[0];
   if (champ && champ.teamId === 'player') {
     s.stats.titles++;
@@ -690,7 +695,7 @@ function endSeason(s: GameState) {
     wins: st.teams.find((t) => t.teamId === 'player')?.wins ?? 0,
   };
   s.seasonEnd = { summary, promotionOffered: s.tier < 2 && teamPos <= 3, prize };
-  news(s, `Saison ${s.season} beendet: Platz ${teamPos} in der Teamwertung.`, teamPos <= 3 ? 'good' : 'neutral');
+  news(s, m('weekend.news.seasonEnd', { season: s.season, pos: teamPos }), teamPos <= 3 ? 'good' : 'neutral');
 }
 
 export function startNextSeason(s: GameState, promote: boolean) {
@@ -705,7 +710,7 @@ export function startNextSeason(s: GameState, promote: boolean) {
     const { teams, drivers } = makeAITeams(s.tier, 7, s.team.name, s.team.region);
     s.aiTeams = teams;
     for (const d of drivers) s.drivers[d.id] = d;
-    news(s, `Aufstieg! ${s.team.name} startet jetzt in der ${TIERS[s.tier].name}.`, 'good');
+    news(s, m('weekend.news.promotion', { team: s.team.name, tier: cat('tier', s.tier) }), 'good');
   } else {
     // KI-Teams: Fahrerwechsel und leichte Annäherung an das Klassenniveau
     for (const t of s.aiTeams) {
@@ -738,7 +743,7 @@ export function startNextSeason(s: GameState, promote: boolean) {
     for (const st of s.staffMarket) st.salary = Math.round(st.salary * (TIERS[s.tier].money / TIERS[oldTier].money));
   }
   refreshMarkets(s);
-  news(s, `Saison ${s.season} beginnt. Erstes Rennen: ${TRACK_BY_ID[s.calendar[0]].name}.`, 'neutral');
+  news(s, m('weekend.news.seasonStart', { season: s.season, track: TRACK_BY_ID[s.calendar[0]].name }), 'neutral');
 }
 
 function shuffleCalendar() {

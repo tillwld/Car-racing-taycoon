@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { GameProvider, useGame } from './ui/store';
 import { Btn, Icon, Logo, Modal, Money } from './ui/components/common';
 import { Onboarding, TitleScreen } from './ui/screens/Onboarding';
@@ -21,7 +21,7 @@ import type { RaceViewResult } from './ui/race/RaceView';
 const RaceView = lazy(() => import('./ui/race/RaceView'));
 const RaceLoading = () => (
   <div className="race-root">
-    <div className="center-msg" style={{ fontSize: 22 }}>Rennstrecke wird geladen …</div>
+    <div className="center-msg" style={{ fontSize: 22 }}>{t('app.race.loading')}</div>
   </div>
 );
 import { setupComplete } from './game/state';
@@ -36,14 +36,19 @@ import HubWorld from './ui/world/HubWorld';
 import { STATION_LABELS, type StationId } from './ui/world/hubLayout';
 import { devSlots } from './game/carModel';
 import { TRACK_BY_ID } from './data/tracks';
-import { aufbauPath, nextPlot, buyPlot, activeMissions, currentTip, dismissTip, features, freeDriveReward, incomeParts, incomePerSec, PLOTS, plotLevel, type MissionTarget } from './game/tycoon';
-import { money } from './game/util';
+import { aufbauPath, nextPlot, buyPlot, activeMissions, currentTip, dismissTip, features, freeDriveReward, incomeParts, incomePerSec, PLOTS, plotLevel, plotReqText, type MissionTarget } from './game/tycoon';
+import { lapTime, money } from './game/util';
 import { sound } from './audio/sound';
+import { lazyRecord, t, tp, tx, useLang, type Params } from './i18n';
+import { platform } from './platform/platform';
+import { usePlatformPaused } from './platform/glue';
+import { runQueuedInterstitial, scheduleInterstitial, setAdsBlocked } from './platform/ads';
 
 export type Screen = 'dashboard' | 'race' | 'garage' | 'research' | 'drivers' | 'staff' | 'sponsors' | 'championship' | 'calendar' | 'finance' | 'stats' | 'settings' | 'manager';
 export type RaceFocus = 'setup' | 'tyres' | 'tactics';
 
 export default function App() {
+  useLang(); // gesamte Oberfläche neu zeichnen, wenn die Sprache wechselt
   return (
     <GameProvider>
       <Root />
@@ -56,9 +61,9 @@ function Toasts() {
   const { toasts } = useGame();
   return (
     <div className="toasts" aria-live="polite">
-      {toasts.map((t) => (
-        <div key={t.id} className={`toast ${t.tone}`}>
-          {t.text}
+      {toasts.map((item) => (
+        <div key={item.id} className={`toast toast-${item.tone}`}>
+          {tx(item.text)}
         </div>
       ))}
     </div>
@@ -74,6 +79,14 @@ function Root() {
   }, [mode]);
   const [confirmNew, setConfirmNew] = useState(false);
   const hasSave = !!game && setupComplete(game);
+  // Das Portal erfährt, dass das Spiel spielbar ist, sobald der Titelbildschirm steht (einmal)
+  const readySent = useRef(false);
+  useEffect(() => {
+    if (mode === 'title' && cloudChecked && !readySent.current) {
+      readySent.current = true;
+      platform.gameReady();
+    }
+  }, [mode, cloudChecked]);
 
   if (mode === 'title') {
     return (
@@ -94,8 +107,8 @@ function Root() {
         />
         {confirmNew && (
           <Modal onClose={() => setConfirmNew(false)}>
-            <h2>Neues Team gründen?</h2>
-            <p className="muted">Dein aktueller Spielstand mit {game?.team.name} wird dabei gelöscht.</p>
+            <h2>{t('app.newTeam.title')}</h2>
+            <p className="muted">{t('app.newTeam.warn', { team: game?.team.name })}</p>
             <div className="row">
               <Btn variant="danger" onClick={() => {
                 clearGame();
@@ -104,9 +117,9 @@ function Root() {
                 setConfirmNew(false);
                 setMode('onboarding');
               }}>
-                Spielstand löschen und neu starten
+                {t('app.newTeam.confirm')}
               </Btn>
-              <Btn variant="ghost" onClick={() => setConfirmNew(false)}>Abbrechen</Btn>
+              <Btn variant="ghost" onClick={() => setConfirmNew(false)}>{t('app.common.cancel')}</Btn>
             </div>
           </Modal>
         )}
@@ -150,28 +163,14 @@ const SCREEN_STATION: Record<Screen, StationId | 'settings' | 'manager'> = {
   settings: 'settings',
   manager: 'manager',
 };
-const TAB_LABEL: Record<Screen, string> = {
-  dashboard: 'Übersicht',
-  race: 'Rennwochenende',
-  garage: 'Werkstatt',
-  research: 'Forschung',
-  drivers: 'Fahrer',
-  staff: 'Mitarbeiter',
-  sponsors: 'Sponsoren',
-  championship: 'Meisterschaft',
-  calendar: 'Rennkalender',
-  finance: 'Finanzen',
-  stats: 'Statistiken & Erfolge',
-  settings: 'Einstellungen',
-  manager: 'Managerin',
-};
-const SCREEN_NEEDS: Partial<Record<Screen, { feature: keyof ReturnType<typeof features>; where: string }>> = {
-  garage: { feature: 'garage', where: 'Baue die Werkstatt.' },
-  research: { feature: 'research', where: 'Baue das Forschungslabor.' },
-  drivers: { feature: 'drivers', where: 'Baue die Fahrerlounge.' },
-  staff: { feature: 'staff', where: 'Baue das Personalbüro.' },
-  sponsors: { feature: 'sponsors', where: 'Baue die Sponsoren-Lounge.' },
-  finance: { feature: 'finance', where: 'Baue die Sponsoren-Lounge oder fahre fünf Rennen.' },
+const TAB_LABEL: Record<Screen, string> = lazyRecord('app.tab', ['dashboard', 'race', 'garage', 'research', 'drivers', 'staff', 'sponsors', 'championship', 'calendar', 'finance', 'stats', 'settings', 'manager'] as const);
+const SCREEN_NEEDS: Partial<Record<Screen, { feature: keyof ReturnType<typeof features>; where: () => string }>> = {
+  garage: { feature: 'garage', where: () => t('app.need.garage') },
+  research: { feature: 'research', where: () => t('app.need.research') },
+  drivers: { feature: 'drivers', where: () => t('app.need.drivers') },
+  staff: { feature: 'staff', where: () => t('app.need.staff') },
+  sponsors: { feature: 'sponsors', where: () => t('app.need.sponsors') },
+  finance: { feature: 'finance', where: () => t('app.need.finance') },
 };
 const QUICK: { s: StationId; icon: string }[] = [
   { s: 'truck', icon: 'flag' },
@@ -203,23 +202,23 @@ function stationAlerts(g: GameState): Partial<Record<StationId, string>> {
   const parts = g.developments.filter((d) => d.kind === 'part').length;
   const res = g.developments.filter((d) => d.kind === 'research').length;
   if (f.garage) {
-    if (Object.values(g.car.condition).some((v) => v < 0.7)) a.garage = 'Reparatur empfohlen';
-    else if (parts < slots.parts && g.money > 150000) a.garage = 'Entwicklungsplatz frei';
+    if (Object.values(g.car.condition).some((v) => v < 0.7)) a.garage = t('app.alert.repair');
+    else if (parts < slots.parts && g.money > 150000) a.garage = t('app.alert.devSlot');
   }
-  if (f.research && res < slots.research && g.money > 150000) a.lab = 'Labor ist frei';
+  if (f.research && res < slots.research && g.money > 150000) a.lab = t('app.alert.labFree');
   if (f.drivers) {
-    if (g.team.driverIds.length < 2) a.lounge = 'Ein Cockpit ist frei';
-    else if (g.team.driverIds.some((id) => (g.drivers[id]?.contract ?? 9) <= 3)) a.lounge = 'Vertrag läuft aus';
+    if (g.team.driverIds.length < 2) a.lounge = t('app.alert.cockpit');
+    else if (g.team.driverIds.some((id) => (g.drivers[id]?.contract ?? 9) <= 3)) a.lounge = t('app.alert.contract');
   }
   if (f.sponsors) {
-    if (!g.sponsors.some((s) => s.slot === 'main')) a.sponsors = 'Kein Hauptsponsor';
-    else if (g.sponsors.some((s) => s.races <= 3)) a.sponsors = 'Vertrag läuft aus';
+    if (!g.sponsors.some((s) => s.slot === 'main')) a.sponsors = t('app.alert.noMain');
+    else if (g.sponsors.some((s) => s.races <= 3)) a.sponsors = t('app.alert.contract');
   }
-  if (f.staff && (!g.staff.mechanic || !g.staff.raceEngineer)) a.staff = 'Wichtige Stelle unbesetzt';
-  if (g.money < 0) a.office = 'Konto im Minus';
+  if (f.staff && (!g.staff.mechanic || !g.staff.raceEngineer)) a.staff = t('app.alert.staffOpen');
+  if (g.money < 0) a.office = t('app.alert.overdrawn');
   if (g.round < g.calendar.length && !g.seasonEnd) {
     const w = g.weekend;
-    a.truck = !w || !w.qualiDone ? 'Rennwochenende wartet' : 'Startaufstellung steht – zum Rennen';
+    a.truck = !w || !w.qualiDone ? t('app.alert.weekend') : t('app.alert.gridSet');
   }
   return a;
 }
@@ -268,6 +267,18 @@ function MoneyTicker({ value, frozen = false }: { value: number; frozen?: boolea
   return <span className="num">{money(v, Math.abs(v) >= 10_000_000)}</span>;
 }
 
+/** Text mit einem Platzhalter {slot}, an dessen Stelle ein Element (z. B. fetter Betrag) erscheint */
+function withSlot(key: string, slot: string, node: ReactNode, params?: Params) {
+  const parts = t(key, { ...params, [slot]: '[[slot]]' }).split('[[slot]]');
+  return (
+    <>
+      {parts[0]}
+      {node}
+      {parts[1] ?? ''}
+    </>
+  );
+}
+
 function TipModal({ id, onClose }: { id: string; onClose: () => void }) {
   const { game } = useGame();
   const tip = TIPS[id];
@@ -275,9 +286,10 @@ function TipModal({ id, onClose }: { id: string; onClose: () => void }) {
   // Nach einer neuen Anlage: kurz sagen, was als Nächstes freigeschaltet wird
   const nxt = id.startsWith('plot_') && game ? nextPlot(game) : null;
   const nxtInfo = nxt && game ? aufbauPath(game).find((x) => x.id === nxt) : null;
+  const nxtReq = nxt && game ? tx(plotReqText(game, nxt)) : '';
   return (
     <Modal onClose={onClose}>
-      <div className="eyebrow">Erklärung</div>
+      <div className="eyebrow">{t('app.tip.eyebrow')}</div>
       <div className="row" style={{ gap: 12, flexWrap: 'nowrap' }}>
         <span className="tip-icon"><Icon name={tip.icon} size={28} /></span>
         <h2>{tip.title}</h2>
@@ -291,16 +303,16 @@ function TipModal({ id, onClose }: { id: string; onClose: () => void }) {
       {tip.next && (
         <div className="tip" style={{ alignItems: 'center' }}>
           <Icon name="right" size={20} />
-          <p><b>Als Nächstes:</b> {tip.next}</p>
+          <p><b>{t('app.tip.next')}</b> {tip.next}</p>
         </div>
       )}
       {nxtInfo && (
         <p className="muted" style={{ fontSize: 13 }}>
-          Danach folgt: <b>{nxtInfo.name}</b>. {nxtInfo.why} {nxtInfo.text && nxtInfo.text !== 'Jetzt baubar: Stell dich auf die leuchtende Fläche.' ? `(${nxtInfo.text})` : ''}
+          {t('app.tip.after')} <b>{tx(nxtInfo.name)}</b>. {tx(nxtInfo.why)} {nxtReq ? `(${nxtReq})` : ''}
         </p>
       )}
       <div className="row">
-        <Btn variant="primary big" onClick={onClose}>Verstanden</Btn>
+        <Btn variant="primary big" onClick={onClose}>{t('app.common.gotIt')}</Btn>
       </div>
     </Modal>
   );
@@ -309,10 +321,17 @@ function TipModal({ id, onClose }: { id: string; onClose: () => void }) {
 type FreeSession = { config: ReturnType<typeof makeFreeDriveConfig>['config']; trackId: string; driverId: string; intro: boolean };
 
 function Shell({ onQuit }: { onQuit: () => void }) {
+  useLang(); // gesamte Oberfläche neu zeichnen, wenn die Sprache wechselt
   const { game, update, saveOk, saveInfo, toast, get, setIncomePaused } = useGame();
   const g = game as GameState;
   const [panel, setPanel] = useState<{ key: StationId | 'settings' | 'manager'; tab: Screen; focus?: RaceFocus } | null>(null);
   const [racing, setRacing] = useState(false);
+  const [snoozedEv, setSnoozedEv] = useState<string | null>(null);
+  const [seasonHidden, setSeasonHidden] = useState(false);
+  const seasonOver = !!game?.seasonEnd;
+  useEffect(() => {
+    if (!seasonOver) setSeasonHidden(false);
+  }, [seasonOver]);
   const [quick, setQuick] = useState(false);
   const [help, setHelp] = useState(false);
   const [incomeOpen, setIncomeOpen] = useState(false);
@@ -338,7 +357,7 @@ function Shell({ onQuit }: { onQuit: () => void }) {
   const go = useCallback((s: Screen) => {
     const need = SCREEN_NEEDS[s];
     if (need && !features(get() as GameState)[need.feature]) {
-      toast(`Noch nicht freigeschaltet. ${need.where}`, 'bad');
+      toast(t('app.toast.locked', { where: need.where() }), 'bad');
       return;
     }
     const key = SCREEN_STATION[s];
@@ -351,14 +370,14 @@ function Shell({ onQuit }: { onQuit: () => void }) {
     const err = update((s) => buyPlot(s, id));
     if (!err) {
       sound.build();
-      toast(`${PLOTS[id].name} gebaut`, 'good');
+      toast(t('app.toast.built', { name: PLOTS[id].name }), 'good');
     }
   }, [update, toast]);
 
   const startFree = useCallback(() => {
     const cur = get() as GameState;
     if (!cur.team.driverIds.length) {
-      toast('Du brauchst einen Fahrer.', 'bad');
+      toast(t('app.toast.needDriver'), 'bad');
       return;
     }
     const sess = makeFreeDriveConfig(cur);
@@ -395,7 +414,7 @@ function Shell({ onQuit }: { onQuit: () => void }) {
   const offline = g.flags.offline as { amount: number; seconds: number } | undefined;
   const missions = activeMissions(g, 3);
   const objective = missions[0] ? SPOT_FOR[missions[0].target] : null;
-  const urgent = box.messages.find((m) => m.urgent && !m.ack) ?? null;
+  const urgent = box.messages.find((msg) => msg.urgent && !msg.ack) ?? null;
   const showTip = !!tipId && !racing && !panel && !free && !freeResult && !ev && !g.seasonEnd && !offline;
   const showUrgent = !!urgent && !showTip && !racing && !panel && !free && !freeResult && !g.seasonEnd && !offline && !reopenTip && !help;
   const blocking = !!panel || (!!ev && !racing) || !!g.seasonEnd || quick || help || !!free || !!freeResult || showTip || !!offline || !!reopenTip || showUrgent;
@@ -404,107 +423,123 @@ function Shell({ onQuit }: { onQuit: () => void }) {
     if (!lastMsg || lastMsg.id === lastMsgId.current) return;
     lastMsgId.current = lastMsg.id;
     if (lastMsg.from !== 'manager' || panel?.key === 'manager') return;
-    if (box.messages.length === 1) toast(`Neu: Deine Managerin ${MANAGER.name}. Über die Sprechblase oben kannst du ihr schreiben.`, 'good');
-    else toast(`Nachricht von ${MANAGER.first}: ${lastMsg.text.split('\n')[0].slice(0, 90)}`, 'good');
+    if (box.messages.length === 1) toast(t('app.toast.managerNew', { name: MANAGER.name }), 'good');
+    else toast(t('app.toast.managerMsg', { name: MANAGER.first, text: tx(lastMsg.text).split('\n')[0].slice(0, 90) }), 'good');
   }, [lastMsg?.id]);
   // Während einer Fahrt läuft das Einkommen im Hintergrund weiter, ohne jede Sekunde die Oberfläche neu zu zeichnen
+  // Pause durch das Portal (Tab im Hintergrund, Werbung läuft, Portal-Pause): Gelände und Einkommen halten an, der Ton wird angehalten (siehe platform/glue.ts)
+  const platformPaused = usePlatformPaused();
   useEffect(() => {
-    setIncomePaused(!!free || racing);
+    setIncomePaused(!!free || racing || platformPaused);
     return () => setIncomePaused(false);
-  }, [free, racing, setIncomePaused]);
-  const tabs = panel ? (panel.key === 'settings' ? (['settings'] as Screen[]) : panel.key === 'manager' ? (['manager'] as Screen[]) : STATION_TABS[panel.key].filter((t) => t !== 'finance' || feats.finance)) : [];
-  const panelTitle = panel ? (panel.key === 'settings' ? 'Einstellungen' : panel.key === 'manager' ? `Managerin ${MANAGER.name}` : STATION_LABELS[panel.key]) : '';
+  }, [free, racing, platformPaused, setIncomePaused]);
+  // Werbung nie mitten in einer Fahrt; vorgemerkte Zwischenwerbung (nach dem Ergebnis) kommt, sobald die Fahrt vorbei ist
+  const driving = racing || !!free;
+  useEffect(() => {
+    setAdsBlocked(driving);
+    platform.gameplay(driving);
+    if (!driving) runQueuedInterstitial();
+  }, [driving]);
+  const tabs = panel ? (panel.key === 'settings' ? (['settings'] as Screen[]) : panel.key === 'manager' ? (['manager'] as Screen[]) : STATION_TABS[panel.key].filter((tb) => tb !== 'finance' || feats.finance)) : [];
+  const panelTitle = panel ? (panel.key === 'settings' ? TAB_LABEL.settings : panel.key === 'manager' ? t('app.manager.named', { name: MANAGER.name }) : STATION_LABELS[panel.key]) : '';
   const nextTrack = g.calendar[g.round] ? TRACK_BY_ID[g.calendar[g.round]] : null;
   const rate = incomePerSec(g);
 
   return (
     <div className="hub-root">
-      <HubWorld game={g} paused={blocking} hidden={!!free || racing} alerts={alerts} objective={objective} onOpen={open} onBuy={buy} onFreeDrive={startFree} walkTo={walkTo} />
+      <HubWorld game={g} paused={blocking || platformPaused} hidden={!!free || racing} alerts={alerts} objective={objective} onOpen={open} onBuy={buy} onFreeDrive={startFree} walkTo={walkTo} />
 
       <header className="hub-top">
         <div className="hub-team">
           <Logo kind={g.team.logo} color={g.team.color} color2={g.team.color2} short={g.team.short} size={36} />
           <div style={{ minWidth: 0 }}>
             <div className="t">{g.team.name}</div>
-            <div className="s">{TIERS[g.tier].name} · Saison {g.season}</div>
+            <div className="s">{t('app.hud.tierSeason', { tier: TIERS[g.tier].name, season: g.season })}</div>
           </div>
         </div>
         <div className="hub-kpis">
-          <button type="button" className="kpi money-kpi" onClick={() => setIncomeOpen((v) => !v)} aria-expanded={incomeOpen} aria-label="Einnahmen anzeigen">
-            <span className="l">Budget</span>
+          <button type="button" className="kpi money-kpi" onClick={() => setIncomeOpen((v) => !v)} aria-expanded={incomeOpen} aria-label={t('app.hud.incomeShow')}>
+            <span className="l">{t('app.hud.budget')}</span>
             <span className="v" style={{ color: g.money < 0 ? 'var(--bad)' : undefined }}><MoneyTicker value={g.money} frozen={!!free || racing} /></span>
-            <span className="rate">+{Math.round(rate).toLocaleString('de-DE')} €/s</span>
+            <span className="rate">{t('app.rate.int', { v: Math.round(rate) })}</span>
           </button>
           <div className="kpi hide-xs">
-            <span className="l">Reputation</span>
+            <span className="l">{t('app.hud.reputation')}</span>
             <span className="v">{Math.round(g.reputation)}</span>
           </div>
           <div className="kpi">
-            <span className="l">Rennen</span>
+            <span className="l">{t('app.hud.race')}</span>
             <span className="v">{Math.min(g.round + 1, g.calendar.length)}/{g.calendar.length}</span>
           </div>
         </div>
         <div className="hub-actions">
-          <button type="button" className="hud-btn" aria-label="Hilfe und Erklärungen" onClick={() => setHelp(true)}>
+          <button type="button" className="hud-btn" aria-label={t('app.hud.help')} onClick={() => setHelp(true)}>
             <Icon name="info" />
           </button>
-          <button type="button" className="hud-btn" aria-label={box.unread ? `Managerin, ${box.unread} neue Nachrichten` : 'Managerin'} onClick={() => setPanel({ key: 'manager', tab: 'manager' })}>
+          <button type="button" className="hud-btn" aria-label={box.unread ? tp('app.hud.managerUnread', box.unread) : t('app.hud.manager')} onClick={() => setPanel({ key: 'manager', tab: 'manager' })}>
             <Icon name="chat" />
             {box.unread > 0 && <span className="hud-badge">{box.unread}</span>}
           </button>
-          <button type="button" className="hud-btn" aria-label={g.settings.muted ? 'Ton an' : 'Ton aus'} onClick={() => update((s) => { s.settings.muted = !s.settings.muted; })}>
+          <button type="button" className="hud-btn" aria-label={g.settings.muted ? t('app.hud.soundOn') : t('app.hud.soundOff')} onClick={() => update((s) => { s.settings.muted = !s.settings.muted; })}>
             <Icon name={g.settings.muted ? 'mute' : 'sound'} />
           </button>
-          <button type="button" className="hud-btn" aria-label="Einstellungen" onClick={() => setPanel({ key: 'settings', tab: 'settings' })}>
+          <button type="button" className="hud-btn" aria-label={t('app.hud.settings')} onClick={() => setPanel({ key: 'settings', tab: 'settings' })}>
             <Icon name="settings" />
           </button>
-          <button type="button" className="hud-btn" aria-label="Schnellzugriff" onClick={() => setQuick((v) => !v)}>
+          <button type="button" className="hud-btn" aria-label={t('app.quick.title')} onClick={() => setQuick((v) => !v)}>
             <Icon name="list" />
           </button>
         </div>
       </header>
 
       {incomeOpen && (
-        <div className="income-pop" role="dialog" aria-label="Einnahmen pro Sekunde">
+        <div className="income-pop" role="dialog" aria-label={t('app.income.title')}>
           <div className="row between">
-            <b className="display" style={{ fontSize: 18 }}>Einnahmen pro Sekunde</b>
-            <button type="button" className="hud-btn" style={{ width: 30, height: 30 }} aria-label="Schließen" onClick={() => setIncomeOpen(false)}><Icon name="close" /></button>
+            <b className="display" style={{ fontSize: 18 }}>{t('app.income.title')}</b>
+            <button type="button" className="hud-btn" style={{ width: 30, height: 30 }} aria-label={t('app.common.close')} onClick={() => setIncomeOpen(false)}><Icon name="close" /></button>
           </div>
           {incomeParts(g).map((p) => (
             <div key={p.label} className="row between" style={{ fontSize: 14, flexWrap: 'nowrap' }}>
-              <span>{p.label}</span>
-              <span className="num good">+{p.perSec.toFixed(p.perSec < 100 ? 1 : 0)} €/s</span>
+              <span>{tx(p.label)}</span>
+              <span className="num good">{p.perSec < 100 ? t('app.rate.dec', { v: p.perSec }) : t('app.rate.int', { v: p.perSec })}</span>
             </div>
           ))}
           <div className="sep" />
           <div className="row between" style={{ fontSize: 14 }}>
-            <b>Gesamt</b>
-            <b className="num good">+{rate.toFixed(1)} €/s</b>
+            <b>{t('app.income.total')}</b>
+            <b className="num good">{t('app.rate.dec', { v: rate })}</b>
           </div>
-          <span className="muted" style={{ fontSize: 12.5 }}>Das sind ca. {money(rate * 60, true)} pro Minute. Stell dich auf leuchtende Flächen, um mehr Anlagen zu bauen.</span>
+          <span className="muted" style={{ fontSize: 12.5 }}>{t('app.income.perMinute', { v: rate * 60 })}</span>
         </div>
       )}
 
       {missions.length > 0 && !blocking && (
-        <div className="hub-missions" aria-label="Aufträge">
-          <div className="eyebrow">Aufträge</div>
-          {missions.map((m, i) => (
-            <button key={m.id} type="button" className={`mission ${i === 0 ? 'first' : ''}`} onClick={() => setWalkTo({ target: SPOT_FOR[m.target], n: Date.now() })}>
+        <div className="hub-missions" aria-label={t('app.missions.title')}>
+          <div className="eyebrow">{t('app.missions.title')}</div>
+          {missions.map((mi, i) => (
+            <button key={mi.id} type="button" className={`mission ${i === 0 ? 'first' : ''}`} onClick={() => setWalkTo({ target: SPOT_FOR[mi.target], n: Date.now() })}>
               <span className="mdot" />
-              <span className="txt">{m.text}</span>
-              {m.reward > 0 && <span className="rw">+{money(m.reward, true)}</span>}
+              <span className="txt">{tx(mi.text)}</span>
+              {mi.reward > 0 && <span className="rw">+{money(mi.reward, true)}</span>}
             </button>
           ))}
         </div>
       )}
 
+      {g.seasonEnd && seasonHidden && !racing && !free && (
+        <div className="hub-next">
+          <span className="eyebrow">{t('app.season.title')}</span>
+          <Btn variant="primary sm" onClick={() => setSeasonHidden(false)}>{t('app.season.reopen')}</Btn>
+        </div>
+      )}
+
       {nextTrack && !g.seasonEnd && (
         <div className="hub-next">
-          <span className="eyebrow">Nächstes Rennen</span>
+          <span className="eyebrow">{t('app.next.eyebrow')}</span>
           <b>{nextTrack.name}</b>
           <div className="row" style={{ gap: 6 }}>
-            <Btn variant="primary sm" icon="flag" onClick={() => setWalkTo({ target: 'truck', n: Date.now() })}>Zum Transporter</Btn>
-            <Btn variant="sm ghost" onClick={() => open('truck')}>Direkt öffnen</Btn>
+            <Btn variant="primary sm" icon="flag" onClick={() => setWalkTo({ target: 'truck', n: Date.now() })}>{t('app.next.walk')}</Btn>
+            <Btn variant="sm ghost" onClick={() => open('truck')}>{t('app.next.open')}</Btn>
           </div>
         </div>
       )}
@@ -512,17 +547,17 @@ function Shell({ onQuit }: { onQuit: () => void }) {
       {quick && (
         <div className="hub-quick" role="menu">
           <div className="row between" style={{ marginBottom: 6 }}>
-            <b className="display" style={{ fontSize: 18 }}>Schnellzugriff</b>
-            <button type="button" className="hud-btn" style={{ width: 32, height: 32 }} aria-label="Schließen" onClick={() => setQuick(false)}><Icon name="close" /></button>
+            <b className="display" style={{ fontSize: 18 }}>{t('app.quick.title')}</b>
+            <button type="button" className="hud-btn" style={{ width: 32, height: 32 }} aria-label={t('app.common.close')} onClick={() => setQuick(false)}><Icon name="close" /></button>
           </div>
           <button type="button" className="hub-quick-item" onClick={() => { setQuick(false); setPanel({ key: 'manager', tab: 'manager' }); }}>
             <Icon name="chat" />
-            <span>Managerin {MANAGER.first}</span>
+            <span>{t('app.manager.named', { name: MANAGER.first })}</span>
             {box.unread > 0 && <span className="dot" />}
           </button>
           <button type="button" className="hub-quick-item" onClick={() => { setQuick(false); startFree(); }}>
             <Icon name="race" />
-            <span>Teststrecke (freie Fahrt)</span>
+            <span>{t('app.quick.testTrack')}</span>
           </button>
           {QUICK.filter((q) => stationBuilt(g, q.s)).map((q) => (
             <button key={q.s} type="button" className="hub-quick-item" onClick={() => open(q.s)}>
@@ -532,8 +567,8 @@ function Shell({ onQuit }: { onQuit: () => void }) {
             </button>
           ))}
           <div className="sep" />
-          <span className="muted" style={{ fontSize: 12 }}>{saveOk ? (saveInfo.cloud === 'ok' ? 'Automatisch gespeichert · auch dauerhaft gesichert' : 'Automatisch gespeichert') : 'Speichern im Browser nicht möglich: bitte unter Einstellungen als Datei sichern'}</span>
-          <Btn variant="ghost sm" onClick={onQuit}>Zum Titelbildschirm</Btn>
+          <span className="muted" style={{ fontSize: 12 }}>{saveOk ? (saveInfo.cloud === 'ok' ? t('app.quick.savedCloud') : t('app.quick.saved')) : t('app.quick.saveFail')}</span>
+          <Btn variant="ghost sm" onClick={onQuit}>{t('app.quick.toTitle')}</Btn>
         </div>
       )}
 
@@ -547,14 +582,14 @@ function Shell({ onQuit }: { onQuit: () => void }) {
               </div>
               {tabs.length > 1 && (
                 <div className="seg">
-                  {tabs.map((t) => (
-                    <button key={t} type="button" className={panel.tab === t ? 'on' : ''} onClick={() => setPanel({ ...panel, tab: t })}>
-                      {TAB_LABEL[t]}
+                  {tabs.map((tb) => (
+                    <button key={tb} type="button" className={panel.tab === tb ? 'on' : ''} onClick={() => setPanel({ ...panel, tab: tb })}>
+                      {TAB_LABEL[tb]}
                     </button>
                   ))}
                 </div>
               )}
-              <Btn variant="sm" icon="close" onClick={close}>Zurück aufs Gelände</Btn>
+              <Btn variant="sm" icon="close" onClick={close}>{t('app.panel.back')}</Btn>
             </header>
             <div className="panel-body">
               <div className="content">
@@ -577,33 +612,33 @@ function Shell({ onQuit }: { onQuit: () => void }) {
         </div>
       )}
 
-      {ev && !racing && !g.seasonEnd && !free && !showUrgent && (
-        <Modal>
-          <div className="eyebrow">Ereignis</div>
-          <h2>{ev.title}</h2>
-          <p>{ev.text}</p>
+      {ev && ev.id !== snoozedEv && !racing && !g.seasonEnd && !free && !showUrgent && (
+        <Modal onClose={() => setSnoozedEv(ev.id)}>
+          <div className="eyebrow">{t('app.event.eyebrow')}</div>
+          <h2>{tx(ev.title)}</h2>
+          <p>{tx(ev.text)}</p>
           <div className="stack">
             {ev.choices.map((c) => (
               <button key={c.effect} type="button" className="choice" disabled={!!c.cost && g.money < c.cost} style={{ opacity: c.cost && g.money < c.cost ? 0.5 : 1 }} onClick={() => update((s) => resolveEvent(s, ev.id, c.effect))}>
-                <b>{c.label}</b>
-                <span>{c.detail}{c.cost && g.money < c.cost ? ' · nicht genug Budget' : ''}</span>
+                <b>{tx(c.label)}</b>
+                <span>{tx(c.detail)}{c.cost && g.money < c.cost ? ` · ${t('app.event.noBudget')}` : ''}</span>
               </button>
             ))}
           </div>
         </Modal>
       )}
-      {g.seasonEnd && !racing && !free && <SeasonEndModal />}
+      {g.seasonEnd && !seasonHidden && !racing && !free && <SeasonEndModal onClose={() => setSeasonHidden(true)} />}
 
       {showUrgent && urgent && (
-        <Modal>
-          <div className="eyebrow">Nachricht von Managerin {MANAGER.name}</div>
-          <h2>Vertrag läuft bald aus</h2>
-          <p style={{ whiteSpace: 'pre-line' }}>{urgent.text}</p>
+        <Modal onClose={() => update((st) => ackManager(st, urgent.id))}>
+          <div className="eyebrow">{t('app.urgent.eyebrow', { name: MANAGER.name })}</div>
+          <h2>{t('app.urgent.title')}</h2>
+          <p style={{ whiteSpace: 'pre-line' }}>{tx(urgent.text)}</p>
           <div className="row">
             {(urgent.actions ?? []).map((a) => (
-              <Btn key={a.screen} variant="primary" onClick={() => { update((st) => ackManager(st, urgent.id)); go(a.screen as Screen); }}>{a.label}</Btn>
+              <Btn key={a.screen} variant="primary" onClick={() => { update((st) => ackManager(st, urgent.id)); go(a.screen as Screen); }}>{tx(a.label)}</Btn>
             ))}
-            <Btn variant={urgent.actions?.length ? 'ghost' : 'primary'} onClick={() => update((st) => ackManager(st, urgent.id))}>{urgent.actions?.length ? 'Später' : 'Verstanden'}</Btn>
+            <Btn variant={urgent.actions?.length ? 'ghost' : 'primary'} onClick={() => update((st) => ackManager(st, urgent.id))}>{urgent.actions?.length ? t('app.urgent.later') : t('app.common.gotIt')}</Btn>
           </div>
         </Modal>
       )}
@@ -612,41 +647,41 @@ function Shell({ onQuit }: { onQuit: () => void }) {
 
       {offline && !racing && !free && (
         <Modal onClose={() => update((s) => { delete s.flags.offline; })}>
-          <div className="eyebrow">Willkommen zurück</div>
-          <h2>Deine Anlagen haben gearbeitet</h2>
-          <p>Während du weg warst, haben Kiosk, Fanshop und Co. <b className="good"><Money v={offline.amount} /></b> verdient.</p>
-          <p className="muted" style={{ fontSize: 13 }}>Das Geld kommt bis zu einer Stunde lang und zur Hälfte, wenn das Spiel geschlossen ist.</p>
+          <div className="eyebrow">{t('app.offline.eyebrow')}</div>
+          <h2>{t('app.offline.title')}</h2>
+          <p>{withSlot('app.offline.earned', 'amount', <b className="good"><Money v={offline.amount} /></b>)}</p>
+          <p className="muted" style={{ fontSize: 13 }}>{t('app.offline.note')}</p>
           <div className="row">
-            <Btn variant="primary big" onClick={() => { sound.coin(); update((s) => { delete s.flags.offline; }); }}>Einsammeln</Btn>
+            <Btn variant="primary big" onClick={() => { sound.coin(); update((s) => { delete s.flags.offline; }); }}>{t('app.offline.collect')}</Btn>
           </div>
         </Modal>
       )}
 
       {freeResult && (
         <Modal onClose={() => setFreeResult(null)}>
-          <div className="eyebrow">Teststrecke · {freeResult.track}</div>
-          <h2>Gute Fahrt!</h2>
-          <p>Beste Runde: <b className="num">{`${Math.floor(freeResult.best / 60)}:${(freeResult.best % 60).toFixed(3).padStart(6, '0')}`}</b></p>
+          <div className="eyebrow">{t('app.free.eyebrow', { track: freeResult.track })}</div>
+          <h2>{t('app.free.title')}</h2>
+          <p>{t('app.free.best')} <b className="num">{lapTime(freeResult.best)}</b></p>
           <div className="stack" style={{ gap: 0 }}>
             {freeResult.lines.map((l, i) => (
               <div key={i} className="row between" style={{ padding: '6px 0', borderBottom: '1px solid var(--line)', fontSize: 14, flexWrap: 'nowrap' }}>
-                <span>{l.label}</span>
+                <span>{tx(l.label)}</span>
                 <Money v={l.amount} sign />
               </div>
             ))}
           </div>
           <div className="row">
-            <Btn variant="primary big" onClick={() => setFreeResult(null)}>Weiter</Btn>
-            <Btn onClick={() => { setFreeResult(null); startFree(); }}>Nochmal fahren</Btn>
+            <Btn variant="primary big" onClick={() => setFreeResult(null)}>{t('app.free.continue')}</Btn>
+            <Btn onClick={() => { setFreeResult(null); startFree(); }}>{t('app.free.again')}</Btn>
           </div>
         </Modal>
       )}
 
       {help && (
         <Modal onClose={() => setHelp(false)}>
-          <div className="eyebrow">Hilfe</div>
-          <h2>Erklärungen</h2>
-          <p className="muted" style={{ fontSize: 14 }}>Hier kannst du alles noch einmal nachlesen. Neue Erklärungen erscheinen, sobald du etwas freischaltest.</p>
+          <div className="eyebrow">{t('app.help.eyebrow')}</div>
+          <h2>{t('app.help.title')}</h2>
+          <p className="muted" style={{ fontSize: 14 }}>{t('app.help.intro')}</p>
           <div className="stack" style={{ gap: 6 }}>
             {Object.keys(TIPS)
               .filter((id) => GENERAL_TIPS.includes(id) || (id.startsWith('plot_') && plotLevel(g, id.slice(5) as PlotId) >= 1))
@@ -658,7 +693,7 @@ function Shell({ onQuit }: { onQuit: () => void }) {
               ))}
           </div>
           <div className="row">
-            <Btn variant="primary" onClick={() => setHelp(false)}>Schließen</Btn>
+            <Btn variant="primary" onClick={() => setHelp(false)}>{t('app.common.close')}</Btn>
           </div>
         </Modal>
       )}
@@ -669,8 +704,8 @@ function Shell({ onQuit }: { onQuit: () => void }) {
           config={free.config}
           humanId={free.driverId}
           focusId={free.driverId}
-          title={`Teststrecke · ${TRACK_BY_ID[free.trackId].name}`}
-          sessionLabel="Teststrecke"
+          title={t('app.free.eyebrow', { track: TRACK_BY_ID[free.trackId].name })}
+          sessionLabel={t('app.free.session')}
           settings={g.settings}
           intro={free.intro}
           features={{ pit: false, fuel: false, damage: false }}
@@ -683,43 +718,43 @@ function Shell({ onQuit }: { onQuit: () => void }) {
   );
 }
 
-function SeasonEndModal() {
+function SeasonEndModal({ onClose }: { onClose: () => void }) {
   const { game, update } = useGame();
   const g = game as GameState;
   const se = g.seasonEnd!;
   const sm = se.summary;
   return (
-    <Modal wide>
-      <div className="eyebrow">Saison {sm.season} · {TIERS[sm.tier].name}</div>
-      <h1>Saisonabschluss</h1>
+    <Modal wide onClose={onClose}>
+      <div className="eyebrow">{t('app.season.eyebrow', { season: sm.season, tier: TIERS[sm.tier].name })}</div>
+      <h1>{t('app.season.title')}</h1>
       <div className="grid g4 keep">
-        <div className="stat-tile"><span className="eyebrow">Teamwertung</span><span className="big-num">P{sm.teamPos}</span></div>
-        <div className="stat-tile"><span className="eyebrow">Bester Fahrer</span><span className="big-num">P{sm.driverPos}</span></div>
-        <div className="stat-tile"><span className="eyebrow">Punkte</span><span className="big-num">{sm.points}</span></div>
-        <div className="stat-tile"><span className="eyebrow">Saisonprämie</span><span className="big-num" style={{ fontSize: 26 }}><Money v={se.prize} compact /></span></div>
+        <div className="stat-tile"><span className="eyebrow">{t('app.season.teamPos')}</span><span className="big-num">P{sm.teamPos}</span></div>
+        <div className="stat-tile"><span className="eyebrow">{t('app.season.bestDriver')}</span><span className="big-num">P{sm.driverPos}</span></div>
+        <div className="stat-tile"><span className="eyebrow">{t('app.season.points')}</span><span className="big-num">{sm.points}</span></div>
+        <div className="stat-tile"><span className="eyebrow">{t('app.season.prize')}</span><span className="big-num" style={{ fontSize: 26 }}><Money v={se.prize} compact /></span></div>
       </div>
       <p>
-        Meister: <b>{sm.championDriver}</b> · Teamtitel: <b>{sm.championTeam}</b>
+        {t('app.season.champion')}: <b>{sm.championDriver}</b> · {t('app.season.teamTitle')}: <b>{sm.championTeam}</b>
       </p>
       {se.promotionOffered ? (
         <div className="tip">
           <Icon name="championship" size={28} />
           <div className="stack">
-            <b>Aufstieg angeboten!</b>
-            <p>Mit Platz {sm.teamPos} darf {g.team.name} in die {TIERS[sm.tier + 1].name} aufsteigen. Dort gibt es deutlich mehr Preis- und Sponsorengeld und deine Anlagen verdienen mehr, aber die Gegner sind viel stärker und alles wird teurer.</p>
+            <b>{t('app.season.promoTitle')}</b>
+            <p>{t('app.season.promoText', { pos: sm.teamPos, team: g.team.name, tier: TIERS[sm.tier + 1].name })}</p>
           </div>
         </div>
       ) : (
-        <p className="muted">{g.tier < 2 ? 'Für einen Aufstieg brauchst du einen Platz unter den ersten drei der Teamwertung.' : 'Ihr fahrt in der Königsklasse – verteidigt euren Platz!'}</p>
+        <p className="muted">{g.tier < 2 ? t('app.season.needTop3') : t('app.season.topClass')}</p>
       )}
       <div className="row">
         {se.promotionOffered && (
-          <Btn variant="primary big" onClick={() => update((s) => startNextSeason(s, true))}>
-            Aufsteigen
+          <Btn variant="primary big" onClick={() => { update((s) => startNextSeason(s, true)); scheduleInterstitial('season_change'); }}>
+            {t('app.season.promote')}
           </Btn>
         )}
-        <Btn variant={se.promotionOffered ? 'big' : 'primary big'} onClick={() => update((s) => startNextSeason(s, false))}>
-          {se.promotionOffered ? 'In der Klasse bleiben' : 'Nächste Saison starten'}
+        <Btn variant={se.promotionOffered ? 'big' : 'primary big'} onClick={() => { update((s) => startNextSeason(s, false)); scheduleInterstitial('season_change'); }}>
+          {se.promotionOffered ? t('app.season.stay') : t('app.season.next')}
         </Btn>
       </div>
     </Modal>

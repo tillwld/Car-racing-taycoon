@@ -6,19 +6,21 @@ import { WEATHER_LABELS } from '../../data/catalog';
 import type { GameState } from '../../types';
 import { trackGeometry } from '../../game/weekend';
 import { trackMetrics } from '../../race/trackGeometry';
+import { t, tp, useLang } from '../../i18n';
 
 export function TrackTraits({ trackId }: { trackId: string }) {
-  const t = TRACK_BY_ID[trackId];
-  const m = useMemo(() => trackMetrics(trackGeometry(t)), [trackId]);
+  useLang();
+  const trk = TRACK_BY_ID[trackId];
+  const tm = useMemo(() => trackMetrics(trackGeometry(trk)), [trackId]);
   const chips: { l: string; tone?: string }[] = [];
-  chips.push({ l: `${(trackGeometry(t).length / 1000).toFixed(2)} km` });
-  if (m.straightPct > 0.74) chips.push({ l: 'Lange Geraden' });
-  if (m.minR < 18) chips.push({ l: 'Enge Kurven' });
-  if (m.corners >= 14) chips.push({ l: 'Viele Kurven' });
-  if (t.ideal.wing >= 60) chips.push({ l: 'Schnelle Kurven' });
-  if (t.tyreWear >= 1.15) chips.push({ l: 'Hoher Reifenverschleiß', tone: 'warn' });
-  if (t.brakeWear >= 1.2) chips.push({ l: 'Hoher Bremsverschleiß', tone: 'warn' });
-  if (t.street) chips.push({ l: 'Stadtkurs: Mauern', tone: 'bad' });
+  chips.push({ l: t('raceparts.traits.length', { km: trackGeometry(trk).length / 1000 }) });
+  if (tm.straightPct > 0.74) chips.push({ l: t('raceparts.traits.straights') });
+  if (tm.minR < 18) chips.push({ l: t('raceparts.traits.tight') });
+  if (tm.corners >= 14) chips.push({ l: t('raceparts.traits.manyCorners') });
+  if (trk.ideal.wing >= 60) chips.push({ l: t('raceparts.traits.fast') });
+  if (trk.tyreWear >= 1.15) chips.push({ l: t('raceparts.traits.tyreWear'), tone: 'warn' });
+  if (trk.brakeWear >= 1.2) chips.push({ l: t('raceparts.traits.brakeWear'), tone: 'warn' });
+  if (trk.street) chips.push({ l: t('raceparts.traits.street'), tone: 'bad' });
   return (
     <div className="row" style={{ gap: 6 }}>
       {chips.map((c) => (
@@ -29,13 +31,14 @@ export function TrackTraits({ trackId }: { trackId: string }) {
 }
 
 export function Forecast({ w }: { w: NonNullable<GameState['weekend']> }) {
+  useLang();
   const segs = w.forecast;
-  const label = (at: number) => (at === 0 ? 'Start' : at < 0.4 ? 'Erstes Drittel' : at < 0.7 ? 'Rennmitte' : 'Schlussphase');
+  const label = (at: number) => t(at === 0 ? 'raceparts.forecast.start' : at < 0.4 ? 'raceparts.forecast.firstThird' : at < 0.7 ? 'raceparts.forecast.mid' : 'raceparts.forecast.final');
   return (
     <div className="stack" style={{ gap: 6 }}>
       <div className="row between">
-        <span className="eyebrow">Wetterprognose</span>
-        <span className="muted" style={{ fontSize: 12 }}>Treffsicherheit {Math.round(w.forecastConfidence * 100)} %</span>
+        <span className="eyebrow">{t('raceparts.forecast.title')}</span>
+        <span className="muted" style={{ fontSize: 12 }}>{t('raceparts.forecast.accuracy', { v: w.forecastConfidence })}</span>
       </div>
       <div className="weather-row">
         {segs.map((s, i) => (
@@ -52,19 +55,20 @@ export function Forecast({ w }: { w: NonNullable<GameState['weekend']> }) {
 
 /** Schmale Kopfzeile für Prüfstand, Reifenlager und Boxenmauer: für welche Strecke planst du gerade? */
 export function TrackStrip({ w, weather }: { w: NonNullable<GameState['weekend']>; weather?: boolean }) {
-  const t = TRACK_BY_ID[w.trackId];
+  useLang();
+  const trk = TRACK_BY_ID[w.trackId];
   return (
     <section className="card stack track-strip" style={{ gap: 8 }}>
       <div className="row between" style={{ flexWrap: 'wrap', gap: 10 }}>
         <div className="row" style={{ gap: 10 }}>
-          <FlagStrip colors={t.flag} />
+          <FlagStrip colors={trk.flag} />
           <div>
-            <span className="eyebrow">Du planst für</span>
-            <h3 style={{ margin: 0 }}>{t.name} · {w.laps} Runden</h3>
+            <span className="eyebrow">{t('raceparts.strip.planning')}</span>
+            <h3 style={{ margin: 0 }}>{tp('raceparts.strip.title', w.laps, { name: trk.name })}</h3>
           </div>
         </div>
       </div>
-      <TrackTraits trackId={t.id} />
+      <TrackTraits trackId={trk.id} />
       {weather && <Forecast w={w} />}
     </section>
   );

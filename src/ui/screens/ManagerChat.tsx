@@ -3,7 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { Screen } from '../../App';
 import { useLoadedGame } from '../store';
 import { Btn, Icon } from '../components/common';
-import { MANAGER, QUICK_QUESTIONS, managerAsk, managerBox, managerReply, markManagerRead } from '../../game/manager';
+import { MANAGER, managerAsk, managerBox, managerReply, markManagerRead, quickQuestions } from '../../game/manager';
+import { t, tx, useLang } from '../../i18n';
 
 const SHOWN_QUESTIONS = 6;
 
@@ -17,6 +18,7 @@ export function ManagerAvatar({ size = 40 }: { size?: number }) {
 
 export default function ManagerChat({ go }: { go: (s: Screen) => void }) {
   const { game: g, update } = useLoadedGame();
+  useLang(); // Beispielfragen und Texte neu holen, wenn die Sprache wechselt
   const box = managerBox(g);
   const [text, setText] = useState('');
   const [typing, setTyping] = useState(false);
@@ -44,29 +46,30 @@ export default function ManagerChat({ go }: { go: (s: Screen) => void }) {
     }, 600 + Math.random() * 500);
   };
 
-  const questions = more ? QUICK_QUESTIONS : QUICK_QUESTIONS.slice(0, SHOWN_QUESTIONS);
+  const allQuestions = quickQuestions();
+  const questions = more ? allQuestions : allQuestions.slice(0, SHOWN_QUESTIONS);
 
   return (
-    <section className="chat" aria-label={`Postfach von ${MANAGER.name}`}>
+    <section className="chat" aria-label={t('chat.aria', { name: MANAGER.name })}>
       <header className="chat-head">
         <ManagerAvatar size={46} />
         <div style={{ minWidth: 0 }}>
           <b className="display" style={{ fontSize: 20 }}>{MANAGER.name}</b>
-          <div className="muted" style={{ fontSize: 13 }}>Deine Managerin · beantwortet Fragen zum Spiel und warnt vor auslaufenden Verträgen</div>
+          <div className="muted" style={{ fontSize: 13 }}>{t('chat.subtitle')}</div>
         </div>
       </header>
 
       <div className="chat-list" ref={listRef} role="log" aria-live="polite">
-        {box.messages.map((m) => (
-          <div key={m.id} className={`chat-row ${m.from === 'player' ? 'me' : ''}`}>
-            {m.from === 'manager' && <ManagerAvatar size={30} />}
-            <div className={`bubble ${m.from === 'player' ? 'me' : ''} ${m.urgent ? 'urgent' : ''}`}>
-              {m.urgent && <span className="pill warn" style={{ marginBottom: 4 }}>Wichtig</span>}
-              <div className="bubble-text">{m.text}</div>
-              {m.actions && m.actions.length > 0 && (
+        {box.messages.map((msg) => (
+          <div key={msg.id} className={`chat-row ${msg.from === 'player' ? 'me' : ''}`}>
+            {msg.from === 'manager' && <ManagerAvatar size={30} />}
+            <div className={`bubble ${msg.from === 'player' ? 'me' : ''} ${msg.urgent ? 'urgent' : ''}`}>
+              {msg.urgent && <span className="pill warn" style={{ marginBottom: 4 }}>{t('chat.urgent')}</span>}
+              <div className="bubble-text">{tx(msg.text)}</div>
+              {msg.actions && msg.actions.length > 0 && (
                 <div className="row" style={{ marginTop: 8 }}>
-                  {m.actions.map((a) => (
-                    <Btn key={a.screen} variant="sm" onClick={() => go(a.screen as Screen)}>{a.label}</Btn>
+                  {msg.actions.map((a) => (
+                    <Btn key={a.screen} variant="sm" onClick={() => go(a.screen as Screen)}>{tx(a.label)}</Btn>
                   ))}
                 </div>
               )}
@@ -76,7 +79,7 @@ export default function ManagerChat({ go }: { go: (s: Screen) => void }) {
         {typing && (
           <div className="chat-row">
             <ManagerAvatar size={30} />
-            <div className="bubble typing" aria-label={`${MANAGER.first} schreibt`}><i /><i /><i /></div>
+            <div className="bubble typing" aria-label={t('chat.typing', { name: MANAGER.first })}><i /><i /><i /></div>
           </div>
         )}
       </div>
@@ -85,8 +88,8 @@ export default function ManagerChat({ go }: { go: (s: Screen) => void }) {
         {questions.map((q) => (
           <button key={q} type="button" className="chip" disabled={typing} onClick={() => send(q)}>{q}</button>
         ))}
-        {QUICK_QUESTIONS.length > SHOWN_QUESTIONS && (
-          <button type="button" className="chip ghost" onClick={() => setMore(!more)}>{more ? 'Weniger Fragen' : 'Mehr Fragen'}</button>
+        {allQuestions.length > SHOWN_QUESTIONS && (
+          <button type="button" className="chip ghost" onClick={() => setMore(!more)}>{more ? t('chat.fewer') : t('chat.more')}</button>
         )}
       </div>
 
@@ -101,13 +104,13 @@ export default function ManagerChat({ go }: { go: (s: Screen) => void }) {
           type="text"
           value={text}
           maxLength={300}
-          placeholder={`Frag ${MANAGER.first} etwas zum Spiel …`}
-          aria-label="Deine Frage"
+          placeholder={t('chat.placeholder', { name: MANAGER.first })}
+          aria-label={t('chat.questionAria')}
           onChange={(e) => setText(e.target.value)}
           // Tasten wie W, A, S, D gehören dem Eingabefeld und lösen keine Spielaktionen aus
           onKeyDown={(e) => e.stopPropagation()}
         />
-        <Btn variant="primary" type="submit" disabled={!text.trim() || typing}><Icon name="chat" /> Senden</Btn>
+        <Btn variant="primary" type="submit" disabled={!text.trim() || typing}><Icon name="chat" /> {t('chat.send')}</Btn>
       </form>
     </section>
   );

@@ -6,6 +6,7 @@ import { nearestIndex, nearestIndexGlobal, pointAt, wrapIndex } from './trackGeo
 import { PIT, PIT_KMH, AIR_TEMP, compoundGrip, TEMP_WINDOW, WETNESS, bestCompoundFor, type DriverParams, type EntryStrategy, type PhysicsParams } from './params';
 import { aiControl, computeProfile, type AIState } from './ai';
 import { COMPOUNDS } from '../data/catalog';
+import { m } from '../i18n';
 
 export { PIT };
 
@@ -357,7 +358,7 @@ export class RaceEngine {
     c.grass = 0;
     c.slide = 0;
     c.lat = g.lineOff[i];
-    this.msg('Zurück auf die Strecke gesetzt.', 'info', id);
+    this.msg(m('engine.reset'), 'info', id);
   }
 
   // Fortschritt des Rennens 0..1 (für Wetterverlauf)
@@ -376,14 +377,14 @@ export class RaceEngine {
       const wasDry = WETNESS[this.weatherNow] === 0;
       this.weatherNow = kind;
       if (wasDry && WETNESS[kind] > 0) {
-        this.msg('Regen setzt ein! Strecke wird nass.', 'warn');
+        this.msg(m('engine.rainStart'), 'warn');
         const h = this.human;
         if (h && this.cfg.mode === 'race' && !this.autopilotHuman && ['soft', 'medium', 'hard'].includes(h.tyre.compound)) {
-          this.msg('Mit Slicks wird es rutschig: Taste P (oder BOX) ruft dich zum Reifenwechsel an die Box.', 'warn', h.cfg.id);
+          this.msg(m('engine.rainSlicks'), 'warn', h.cfg.id);
         }
       }
-      else if (WETNESS[kind] === 0) this.msg('Der Regen hört auf, die Strecke trocknet ab.', 'info');
-      else if (kind === 'heavyRain') this.msg('Starker Regen! Wet-Reifen empfohlen.', 'warn');
+      else if (WETNESS[kind] === 0) this.msg(m('engine.rainStop'), 'info');
+      else if (kind === 'heavyRain') this.msg(m('engine.rainHeavy'), 'warn');
       this.onEvent?.({ type: 'weather', data: kind });
     }
     const target = WETNESS[kind];
@@ -441,13 +442,13 @@ export class RaceEngine {
         this.phase = 'racing';
         this.time = 0;
         this.onEvent?.({ type: 'lightsOut' });
-        this.msg('Lichter aus – los geht’s!', 'good');
+        this.msg(m('engine.lightsOut'), 'good');
         const h = this.human;
         if (h && !this.autopilotHuman && this.humanInput.throttle > 0.3) {
           // Zu früh aufs Gas: Fehlstart, das Auto steht noch kurz still
           this.startJump = true;
           this.startHoldUntil = START_JUMP_HOLD;
-          this.msg('Fehlstart! Du warst zu früh auf dem Gas.', 'bad', h.cfg.id);
+          this.msg(m('engine.falseStart'), 'bad', h.cfg.id);
         }
       }
       return;
@@ -735,7 +736,7 @@ export class RaceEngine {
       c.fuel -= ((vNow * dt) / this.raceDist) * (0.35 + 0.75 * c.throttle) / 0.91 * c.cfg.car.fuelUse * styleF;
       if (c.fuel <= 0 && !c.lastWarn.fuelOut) {
         c.lastWarn.fuelOut = 1;
-        if (c.cfg.human) this.msg('Kein Sprit mehr! Das Auto rollt aus.', 'bad', c.cfg.id);
+        if (c.cfg.human) this.msg(m('engine.fuelOut'), 'bad', c.cfg.id);
       }
     }
 
@@ -753,7 +754,7 @@ export class RaceEngine {
         const part: DamageKey = Math.random() < 0.62 ? 'engine' : 'gearbox';
         const amt = 0.15 + Math.random() * 0.45;
         this.addDamage(c, part, amt);
-        if (!c.dnf) this.msg(`${c.cfg.short}: Problem am ${part === 'engine' ? 'Motor' : 'Getriebe'}!`, c.cfg.playerTeam ? 'bad' : 'info', c.cfg.id);
+        if (!c.dnf) this.msg(m(part === 'engine' ? 'engine.problem.engine' : 'engine.problem.gearbox', { name: c.cfg.short }), c.cfg.playerTeam ? 'bad' : 'info', c.cfg.id);
       }
     }
 
@@ -802,7 +803,7 @@ export class RaceEngine {
           if (lt < this.fastestLap.time) {
             const had = this.fastestLap.id !== '';
             this.fastestLap = { id: c.cfg.id, time: lt };
-            if (had && this.cfg.mode === 'race') this.msg(`Schnellste Runde: ${c.cfg.short} ${fmt(lt)}`, c.cfg.playerTeam ? 'good' : 'info', c.cfg.id);
+            if (had && this.cfg.mode === 'race') this.msg(m('engine.fastestLap', { name: c.cfg.short, time: fmt(lt) }), c.cfg.playerTeam ? 'good' : 'info', c.cfg.id);
           }
           this.onEvent?.({ type: 'lap', carId: c.cfg.id, data: lt });
         }
@@ -818,7 +819,7 @@ export class RaceEngine {
           if (!this.leaderFinished) {
             this.leaderFinished = true;
             this.leaderFinishTime = this.time;
-            this.msg(`Zielflagge! ${c.cfg.name} gewinnt.`, c.cfg.playerTeam ? 'good' : 'info', c.cfg.id);
+            this.msg(m('engine.chequered', { name: c.cfg.name }), c.cfg.playerTeam ? 'good' : 'info', c.cfg.id);
             this.onEvent?.({ type: 'flag', carId: c.cfg.id });
           }
           this.onEvent?.({ type: 'carFinished', carId: c.cfg.id });
@@ -942,11 +943,11 @@ export class RaceEngine {
         if (isHuman && side > hw + 1.0) {
           if (lastLap || rel >= PIT.entryLen) {
             this.enterPit(c, true);
-            this.msg(lastLap ? (this.cfg.mode === 'race' ? 'Letzte Runde: Durchfahrt durch die Boxengasse, ohne Stopp.' : 'Durchfahrt durch die Boxengasse: Boxenstopps gibt es nur im Rennen.') : 'Zu spät eingebogen: Durchfahrt durch die Boxengasse, ohne Stopp.', 'info', c.cfg.id);
+            this.msg(m(lastLap ? (this.cfg.mode === 'race' ? 'engine.pit.lastLapDrive' : 'engine.pit.noStopsHere') : 'engine.pit.tooLateDrive'), 'info', c.cfg.id);
           } else {
             c.pitReq = this.defaultPitRequest(c);
             this.enterPit(c);
-            this.msg(`Boxeneinfahrt: Dein Team wartet. Neue Reifen: ${COMPOUNDS[c.pitReq.compound].label}. Mit P kannst du den Stopp noch absagen.`, 'warn', c.cfg.id);
+            this.msg(m('engine.pit.entry', { tyre: m(`catalog.compound.${c.pitReq.compound}.label`) }), 'warn', c.cfg.id);
           }
         }
         return;
@@ -954,14 +955,14 @@ export class RaceEngine {
       if (lastLap) {
         // letzte Runde: Stopp lohnt nicht mehr
         c.pitReq = null;
-        if (isHuman) this.msg('Letzte Runde – der Boxenstopp ist abgesagt.', 'info', c.cfg.id);
+        if (isHuman) this.msg(m('engine.pit.lastLapCanceled'), 'info', c.cfg.id);
         return;
       }
       if (rel >= PIT.entryLen) {
         // zu spät auf die Zufahrt gelenkt: nicht an der Boxenmauer abprallen, sondern durchfahren (der Wunsch bleibt für die nächste Runde)
         if (isHuman && side > hw + 1.0) {
           this.enterPit(c, true);
-          this.msg('Zu spät eingebogen: Durchfahrt ohne Stopp. Dein Stopp-Wunsch gilt für die nächste Runde.', 'warn', c.cfg.id);
+          this.msg(m('engine.pit.tooLateNext'), 'warn', c.cfg.id);
         }
         return;
       }
@@ -969,7 +970,7 @@ export class RaceEngine {
       this.enterPit(c);
     } else if (rel >= PIT.entryLen + 8 && rel < PIT.entryLen + 68 && c.pitReq && isHuman && !c.pitMissed) {
       c.pitMissed = true;
-      this.msg('Boxeneinfahrt verpasst – der Stopp gilt für die nächste Runde.', 'warn', c.cfg.id);
+      this.msg(m('engine.pit.missed'), 'warn', c.cfg.id);
     } else if (rel > L * 0.5) c.pitMissed = false;
   }
 
@@ -991,7 +992,7 @@ export class RaceEngine {
     if (c.pitRel > c.pitStopRel - c.pitShift - 1) return false;
     c.pitDrive = true;
     c.pitReq = null;
-    if (c.cfg.human) this.msg('Stopp abgesagt: Du fährst durch die Boxengasse durch.', 'info', id);
+    if (c.cfg.human) this.msg(m('engine.pit.canceledDrive'), 'info', id);
     return true;
   }
 
@@ -1015,7 +1016,7 @@ export class RaceEngine {
     let err = c.h - (Math.atan2(p.ty, p.tx) + ang);
     err = Math.atan2(Math.sin(err), Math.cos(err));
     c.pitHeadErr = err;
-    if (c.cfg.human && !drive) this.msg(`Boxengasse: Limiter aktiv (${PIT_KMH} km/h).`, 'info', c.cfg.id);
+    if (c.cfg.human && !drive) this.msg(m('engine.pit.limiter', { kmh: PIT_KMH }), 'info', c.cfg.id);
     this.onEvent?.({ type: 'pitEntry', carId: c.cfg.id });
   }
 
@@ -1093,7 +1094,7 @@ export class RaceEngine {
         c.pitTimer = tm;
         c.pitTotal = tm;
         c.lastPitTime = tm;
-        if (c.cfg.playerTeam) this.msg(`${c.cfg.short}: Stopp ${tm.toFixed(1)} s${err ? ' – Probleme am Rad!' : ''}`, err ? 'bad' : 'good', c.cfg.id);
+        if (c.cfg.playerTeam) this.msg(m(err ? 'engine.pit.stopError' : 'engine.pit.stop', { name: c.cfg.short, time: tm }), err ? 'bad' : 'good', c.cfg.id);
         this.onEvent?.({ type: 'pitStop', carId: c.cfg.id, data: tm });
       }
     } else if (c.pit === 'stopped') {
@@ -1179,18 +1180,17 @@ export class RaceEngine {
     if (amt <= 0 || c.dnf) return;
     c.damage[k] = Math.min(1, c.damage[k] + amt);
     if (c.cfg.human && amt > 0.08) {
-      const label = { engine: 'Motor', gearbox: 'Getriebe', brakes: 'Bremsen', frontWing: 'Frontflügel', suspension: 'Aufhängung' }[k];
       if ((c.lastWarn[k] ?? -99) < this.time - 4) {
         c.lastWarn[k] = this.time;
-        this.msg(`Schaden: ${label} (${Math.round(c.damage[k] * 100)} %)`, 'bad', c.cfg.id);
+        this.msg(m('engine.damage', { part: m(`engine.part.${k}`), v: c.damage[k] }), 'bad', c.cfg.id);
       }
     }
     if ((k === 'engine' || k === 'gearbox' || k === 'suspension') && c.damage[k] >= 1 && this.cfg.mode === 'race') {
       c.dnf = true;
-      c.dnfReason = k === 'engine' ? 'Motorschaden' : k === 'gearbox' ? 'Getriebeschaden' : 'Unfall';
+      c.dnfReason = m(k === 'engine' ? 'engine.dnf.engine' : k === 'gearbox' ? 'engine.dnf.gearbox' : 'engine.dnf.crash');
       c.speed = 0;
       c.vx = c.vy = 0;
-      this.msg(`Ausfall: ${c.cfg.name} (${c.dnfReason})`, c.cfg.playerTeam ? 'bad' : 'info', c.cfg.id);
+      this.msg(m('engine.dnfMsg', { name: c.cfg.name, reason: c.dnfReason }), c.cfg.playerTeam ? 'bad' : 'info', c.cfg.id);
       this.onEvent?.({ type: 'dnf', carId: c.cfg.id });
     }
   }
@@ -1261,7 +1261,7 @@ export class RaceEngine {
                   for (const car of [A, B]) {
                     if (Math.random() < 0.22) {
                       car.tyre.wear = Math.max(car.tyre.wear, 0.97);
-                      this.msg(`${car.cfg.short}: Reifenschaden!`, car.cfg.playerTeam ? 'bad' : 'info', car.cfg.id);
+                      this.msg(m('engine.puncture', { name: car.cfg.short }), car.cfg.playerTeam ? 'bad' : 'info', car.cfg.id);
                     }
                   }
                 }

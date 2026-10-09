@@ -1,15 +1,17 @@
 // Zufallsereignisse zwischen den Rennen. Jede Entscheidung hat Konsequenzen.
-import { PARTS, PART_KEYS, STAFF_ROLES, TIERS } from '../data/catalog';
+// Alle Texte der Ereignisse sind m()-Texte (liegen im Spielstand und werden erst beim Anzeigen mit tx() übersetzt).
+import { PART_KEYS, TIERS } from '../data/catalog';
+import { m, t } from '../i18n';
 import type { GameEvent, GameState, PartKey, Sponsor, StaffRole } from '../types';
 import { genId, makeSponsor } from './generators';
-import { academyCost, book, discoverTalent, news, playerDrivers, signAcademy } from './state';
+import { academyCost, book, cat, discoverTalent, news, playerDrivers, signAcademy } from './state';
 import { chance, clamp, pick, rand } from './util';
 import { TRACK_BY_ID } from '../data/tracks';
 
 type Gen = (s: GameState) => GameEvent | null;
 
-const m = (s: GameState, v: number) => Math.round((v * TIERS[s.tier].money) / 1000) * 1000;
-const eur = (v: number) => `${v.toLocaleString('de-DE')} €`;
+/** Betrag an die Rennklasse anpassen (auf Tausender gerundet) */
+const scaled = (s: GameState, v: number) => Math.round((v * TIERS[s.tier].money) / 1000) * 1000;
 
 /** Verlängerungsangebot eines zufriedenen Sponsors (auch von der Managerin vor Vertragsende ausgelöst) */
 export function extendEvent(s: GameState, sp: Sponsor): GameEvent {
@@ -17,11 +19,11 @@ export function extendEvent(s: GameState, sp: Sponsor): GameEvent {
   return {
     id: genId('ev'),
     kind: 'extend',
-    title: `${sp.name} möchte verlängern`,
-    text: `${sp.name} ist zufrieden und bietet eine Verlängerung um 7 Rennen zu 10 % besseren Konditionen an.`,
+    title: m('events.extend.title', { name: sp.name }),
+    text: m('events.extend.text', { name: sp.name }),
     choices: [
-      { label: 'Verlängern', detail: `${eur(Math.round(sp.perRace * 1.1))} pro Rennen`, effect: 'accept' },
-      { label: 'Auslaufen lassen', detail: 'Platz für neue Sponsoren', effect: 'decline' },
+      { label: m('events.extend.accept.label'), detail: m('events.extend.accept.detail', { amount: Math.round(sp.perRace * 1.1) }), effect: 'accept' },
+      { label: m('events.extend.decline.label'), detail: m('events.extend.decline.detail'), effect: 'decline' },
     ],
     data: { sponsorId: sp.id },
   };
@@ -30,16 +32,16 @@ export function extendEvent(s: GameState, sp: Sponsor): GameEvent {
 const GENERATORS: Gen[] = [
   (s) => {
     const sp = makeSponsor(s, 'secondary');
-    const reward = m(s, rand(25000, 45000));
+    const reward = scaled(s, rand(25000, 45000));
     const target = pick([5, 8, 10]);
     return {
       id: genId('ev'),
       kind: 'sponsorBonus',
-      title: 'Kurzfristiges Sponsorangebot',
-      text: `${sp.name} bietet einen Sonderbonus von ${eur(reward)}, wenn ein Fahrer beim nächsten Rennen mindestens Platz ${target} erreicht. Verfehlt ihr das Ziel, leidet euer Ruf.`,
+      title: m('events.sponsorBonus.title'),
+      text: m('events.sponsorBonus.text', { name: sp.name, reward, target }),
       choices: [
-        { label: 'Annehmen', detail: `+${eur(reward)} bei Erfolg, −3 Reputation bei Misserfolg`, effect: 'accept' },
-        { label: 'Ablehnen', detail: 'Keine Auswirkungen', effect: 'decline' },
+        { label: m('events.sponsorBonus.accept.label'), detail: m('events.sponsorBonus.accept.detail', { reward }), effect: 'accept' },
+        { label: m('events.sponsorBonus.decline.label'), detail: m('events.sponsorBonus.decline.detail'), effect: 'decline' },
       ],
       data: { name: sp.name, reward, target },
     };
@@ -52,26 +54,26 @@ const GENERATORS: Gen[] = [
     return {
       id: genId('ev'),
       kind: 'salaryDemand',
-      title: `${d.name} fordert mehr Gehalt`,
-      text: `Nach den letzten Leistungen verlangt ${d.name} eine Gehaltserhöhung um ${eur(raise)} pro Rennen.`,
+      title: m('events.salaryDemand.title', { name: d.name }),
+      text: m('events.salaryDemand.text', { name: d.name, raise }),
       choices: [
-        { label: 'Erhöhung gewähren', detail: `+${eur(raise)} Gehalt pro Rennen, Moral steigt deutlich`, effect: 'accept' },
-        { label: 'Leistungsbonus anbieten', detail: 'Halbe Erhöhung, Moral steigt leicht', effect: 'half' },
-        { label: 'Ablehnen', detail: 'Moral sinkt, Konstanz leidet', effect: 'decline' },
+        { label: m('events.salaryDemand.accept.label'), detail: m('events.salaryDemand.accept.detail', { raise }), effect: 'accept' },
+        { label: m('events.salaryDemand.half.label'), detail: m('events.salaryDemand.half.detail'), effect: 'half' },
+        { label: m('events.salaryDemand.decline.label'), detail: m('events.salaryDemand.decline.detail'), effect: 'decline' },
       ],
       data: { driverId: d.id, raise },
     };
   },
   (s) => {
-    const cost = m(s, 40000);
+    const cost = scaled(s, 40000);
     return {
       id: genId('ev'),
       kind: 'engineFailure',
-      title: 'Motorschaden bei Testfahrt',
-      text: 'Bei einer Testfahrt vor dem nächsten Rennen ist der Motor hochgegangen. Die Mechaniker können ihn notdürftig flicken oder ein neues Aggregat einbauen.',
+      title: m('events.engineFailure.title'),
+      text: m('events.engineFailure.text'),
       choices: [
-        { label: 'Neuen Motor einbauen', detail: `Kosten ${eur(cost)}, Motor wie neu`, effect: 'replace', cost },
-        { label: 'Flicken und hoffen', detail: 'Kostenlos, Motorzustand −30 %, höheres Ausfallrisiko', effect: 'patch' },
+        { label: m('events.engineFailure.replace.label'), detail: m('events.engineFailure.replace.detail', { cost }), effect: 'replace', cost },
+        { label: m('events.engineFailure.patch.label'), detail: m('events.engineFailure.patch.detail'), effect: 'patch' },
       ],
       data: { cost },
     };
@@ -81,26 +83,26 @@ const GENERATORS: Gen[] = [
     return {
       id: genId('ev'),
       kind: 'talent',
-      title: 'Nachwuchstalent entdeckt',
-      text: 'Dein Scout hat bei einem Kartrennen ein außergewöhnliches Talent entdeckt. Andere Teams sind bereits interessiert.',
+      title: m('events.talent.title'),
+      text: m('events.talent.text'),
       choices: [
-        { label: 'In die Akademie holen', detail: `Kosten ${eur(academyCost(s))}, entwickelt sich jedes Rennen`, effect: 'academy', cost: academyCost(s) },
-        { label: 'Auf die Beobachtungsliste', detail: 'Erscheint auf dem Fahrermarkt', effect: 'watch' },
+        { label: m('events.talent.academy.label'), detail: m('events.talent.academy.detail', { cost: academyCost(s) }), effect: 'academy', cost: academyCost(s) },
+        { label: m('events.talent.watch.label'), detail: m('events.talent.watch.detail'), effect: 'watch' },
       ],
       data: {},
     };
   },
   (s) => {
     const part = pick(PART_KEYS);
-    const cost = m(s, 50000);
+    const cost = scaled(s, 50000);
     return {
       id: genId('ev'),
       kind: 'tech',
-      title: 'Idee aus der Entwicklungsabteilung',
-      text: `Ein Ingenieur hat eine vielversprechende Idee für das Bauteil „${PARTS[part].label}“. Mit etwas Budget könnte daraus sofort ein Upgrade werden – Erfolg ist aber nicht garantiert.`,
+      title: m('events.tech.title'),
+      text: m('events.tech.text', { part: cat('part', part, 'label') }),
       choices: [
-        { label: 'Investieren', detail: `Kosten ${eur(cost)}, 70 % Chance auf +1 Stufe`, effect: 'invest', cost },
-        { label: 'Ablehnen', detail: 'Keine Kosten', effect: 'decline' },
+        { label: m('events.tech.invest.label'), detail: m('events.tech.invest.detail', { cost }), effect: 'invest', cost },
+        { label: m('events.tech.decline.label'), detail: m('events.tech.decline.detail'), effect: 'decline' },
       ],
       data: { part, cost },
     };
@@ -108,29 +110,29 @@ const GENERATORS: Gen[] = [
   (s) => {
     const next = s.calendar[s.round];
     if (!next) return null;
-    const cost = m(s, 15000);
+    const cost = scaled(s, 15000);
     return {
       id: genId('ev'),
       kind: 'weather',
-      title: 'Unwetterwarnung',
-      text: `Für ${TRACK_BY_ID[next].name} ist Regen angesagt. Ein Regentest im Simulator würde dem Team helfen, das Auto für nasse Bedingungen abzustimmen.`,
+      title: m('events.weather.title'),
+      text: m('events.weather.text', { track: TRACK_BY_ID[next].name }),
       choices: [
-        { label: 'Regentest durchführen', detail: `Kosten ${eur(cost)}, Regen sicher, +20 Setup-Wissen`, effect: 'test', cost },
-        { label: 'Ignorieren', detail: 'Es wird trotzdem regnen', effect: 'ignore' },
+        { label: m('events.weather.test.label'), detail: m('events.weather.test.detail', { cost }), effect: 'test', cost },
+        { label: m('events.weather.ignore.label'), detail: m('events.weather.ignore.detail'), effect: 'ignore' },
       ],
       data: { cost },
     };
   },
   (s) => {
-    const cost = m(s, 28000);
+    const cost = scaled(s, 28000);
     return {
       id: genId('ev'),
       kind: 'testCrash',
-      title: 'Unfall bei Werbefahrt',
-      text: 'Bei einer Demofahrt für Sponsoren ist das Auto in die Streckenbegrenzung gerutscht. Frontflügel und Aufhängung sind beschädigt.',
+      title: m('events.testCrash.title'),
+      text: m('events.testCrash.text'),
       choices: [
-        { label: 'Sofort reparieren', detail: `Kosten ${eur(cost)}`, effect: 'repair', cost },
-        { label: 'Später reparieren', detail: 'Frontflügel −40 %, Fahrwerk −20 % Zustand', effect: 'later' },
+        { label: m('events.testCrash.repair.label'), detail: m('events.testCrash.repair.detail', { cost }), effect: 'repair', cost },
+        { label: m('events.testCrash.later.label'), detail: m('events.testCrash.later.detail'), effect: 'later' },
       ],
       data: { cost },
     };
@@ -138,24 +140,24 @@ const GENERATORS: Gen[] = [
   () => ({
     id: genId('ev'),
     kind: 'media',
-    title: 'Pressekonferenz',
-    text: 'Die Journalisten wollen wissen, was ihr euch für das nächste Rennen vornehmt.',
+    title: m('events.media.title'),
+    text: m('events.media.text'),
     choices: [
-      { label: 'Bescheiden bleiben', detail: '+1 Reputation', effect: 'humble' },
-      { label: 'Kampfansage', detail: '+4 Reputation, −5 bei einem Rennen ohne Punkte', effect: 'bold' },
+      { label: m('events.media.humble.label'), detail: m('events.media.humble.detail'), effect: 'humble' },
+      { label: m('events.media.bold.label'), detail: m('events.media.bold.detail'), effect: 'bold' },
     ],
     data: {},
   }),
   (s) => {
-    const cost = m(s, 20000);
+    const cost = scaled(s, 20000);
     return {
       id: genId('ev'),
       kind: 'fans',
-      title: 'Fan-Tag in der Fabrik',
-      text: 'Der Fanclub fragt, ob ihr einen Tag der offenen Tür organisiert.',
+      title: m('events.fans.title'),
+      text: m('events.fans.text'),
       choices: [
-        { label: 'Fan-Tag ausrichten', detail: `Kosten ${eur(cost)}, +3 Reputation`, effect: 'host', cost },
-        { label: 'Absagen', detail: '−1 Reputation', effect: 'decline' },
+        { label: m('events.fans.host.label'), detail: m('events.fans.host.detail', { cost }), effect: 'host', cost },
+        { label: m('events.fans.decline.label'), detail: m('events.fans.decline.detail'), effect: 'decline' },
       ],
       data: { cost },
     };
@@ -166,14 +168,15 @@ const GENERATORS: Gen[] = [
     const role = pick(roles);
     const st = s.staff[role]!;
     const raise = Math.round((st.salary * 0.3) / 250) * 250;
+    const roleName = cat('staffRole', role, 'label');
     return {
       id: genId('ev'),
       kind: 'poach',
-      title: 'Abwerbeversuch',
-      text: `Ein Konkurrenzteam will ${st.name} (${STAFF_ROLES[role].label}) abwerben.`,
+      title: m('events.poach.title'),
+      text: m('events.poach.text', { name: st.name, role: roleName }),
       choices: [
-        { label: 'Gehalt erhöhen', detail: `+${eur(raise)} pro Rennen`, effect: 'keep' },
-        { label: 'Gehen lassen', detail: `${STAFF_ROLES[role].label} verlässt das Team, Ablöse ${eur(st.salary * 3)}`, effect: 'release' },
+        { label: m('events.poach.keep.label'), detail: m('events.poach.keep.detail', { raise }), effect: 'keep' },
+        { label: m('events.poach.release.label'), detail: m('events.poach.release.detail', { role: roleName, fee: st.salary * 3 }), effect: 'release' },
       ],
       data: { role, raise },
     };
@@ -228,13 +231,13 @@ export function resolveEvent(s: GameState, id: string, effect: string): string |
       } else {
         dr.morale = clamp(dr.morale - 18, 0, 100);
         dr.stats.consistency = Math.max(15, dr.stats.consistency - 3);
-        news(s, `${dr.name} ist verärgert.`, 'bad');
+        news(s, m('events.news.upset', { name: dr.name }), 'bad');
       }
       break;
     }
     case 'engineFailure':
       if (effect === 'replace') {
-        if (!pay(d.cost, 'Neuer Motor')) return 'Nicht genug Budget.';
+        if (!pay(d.cost, m('events.ledger.newEngine'))) return t('events.err.budget');
         s.car.condition.engine = 1;
       } else {
         s.car.condition.engine = Math.max(0.1, s.car.condition.engine - 0.3);
@@ -242,33 +245,33 @@ export function resolveEvent(s: GameState, id: string, effect: string): string |
       }
       break;
     case 'talent': {
-      const t = discoverTalent(s);
+      const tal = discoverTalent(s);
       if (effect === 'academy') {
-        const err = signAcademy(s, t.id);
+        const err = signAcademy(s, tal.id);
         if (err) return err;
-      } else news(s, `${t.name} steht jetzt auf dem Fahrermarkt.`, 'neutral');
+      } else news(s, m('events.news.onMarket', { name: tal.name }), 'neutral');
       break;
     }
     case 'tech':
       if (effect === 'invest') {
-        if (!pay(d.cost, 'Entwicklungsidee')) return 'Nicht genug Budget.';
+        if (!pay(d.cost, m('events.ledger.techIdea'))) return t('events.err.budget');
         if (Math.random() < 0.7) {
           const p = d.part as PartKey;
           s.car.parts[p] = Math.min(10, s.car.parts[p] + 1);
-          news(s, `Durchbruch! ${PARTS[p].label} steigt auf Stufe ${s.car.parts[p]}.`, 'good');
-        } else news(s, 'Die Idee hat leider nicht funktioniert.', 'bad');
+          news(s, m('events.news.breakthrough', { part: cat('part', p, 'label'), level: s.car.parts[p] }), 'good');
+        } else news(s, m('events.news.ideaFailed'), 'bad');
       }
       break;
     case 'weather':
       s.flags.forceRain = true;
       if (effect === 'test') {
-        if (!pay(d.cost, 'Regentest')) return 'Nicht genug Budget.';
+        if (!pay(d.cost, m('events.ledger.rainTest'))) return t('events.err.budget');
         s.flags.setupBonus = 20;
       }
       break;
     case 'testCrash':
       if (effect === 'repair') {
-        if (!pay(d.cost, 'Reparatur nach Unfall')) return 'Nicht genug Budget.';
+        if (!pay(d.cost, m('events.ledger.crashRepair'))) return t('events.err.budget');
       } else {
         s.car.condition.frontWing = Math.max(0.1, s.car.condition.frontWing - 0.4);
         s.car.condition.suspension = Math.max(0.1, s.car.condition.suspension - 0.2);
@@ -283,7 +286,7 @@ export function resolveEvent(s: GameState, id: string, effect: string): string |
       break;
     case 'fans':
       if (effect === 'host') {
-        if (!pay(d.cost, 'Fan-Tag')) return 'Nicht genug Budget.';
+        if (!pay(d.cost, m('events.ledger.fanDay'))) return t('events.err.budget');
         s.reputation = clamp(s.reputation + 3, 0, 100);
       } else s.reputation = clamp(s.reputation - 1, 0, 100);
       break;
@@ -292,9 +295,9 @@ export function resolveEvent(s: GameState, id: string, effect: string): string |
       if (!st) break;
       if (effect === 'keep') st.salary += d.raise;
       else {
-        book(s, `Ablöse für ${st.name}`, st.salary * 3, 'event');
+        book(s, m('events.ledger.transferFee', { name: st.name }), st.salary * 3, 'event');
         delete s.staff[d.role as StaffRole];
-        news(s, `${st.name} wechselt zur Konkurrenz.`, 'bad');
+        news(s, m('events.news.poached', { name: st.name }), 'bad');
       }
       break;
     }
@@ -303,7 +306,7 @@ export function resolveEvent(s: GameState, id: string, effect: string): string |
       if (sp && effect === 'accept') {
         sp.races += 7;
         sp.perRace = Math.round((sp.perRace * 1.1) / 1000) * 1000;
-        news(s, `${sp.name} verlängert.`, 'good');
+        news(s, m('events.news.extended', { name: sp.name }), 'good');
       }
       break;
     }

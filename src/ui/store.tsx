@@ -5,6 +5,8 @@ import { cloud } from '../game/cloud';
 import { newAchievements } from '../game/state';
 import { applyOffline, claimMissions, hasPendingMissions, incomePerSec } from '../game/tycoon';
 import { sound } from '../audio/sound';
+import { store } from '../platform/storage';
+import { t, tx } from '../i18n';
 
 export interface Toast {
   id: number;
@@ -74,14 +76,14 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   const toast = useCallback((text: string, tone: Toast['tone'] = 'info') => {
     const id = toastId++;
-    setToasts((t) => [...t.slice(-3), { id, text, tone }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), tone === 'ach' ? 4200 : 3200);
+    setToasts((list) => [...list.slice(-3), { id, text: tx(text), tone }]);
+    setTimeout(() => setToasts((list) => list.filter((x) => x.id !== id)), tone === 'ach' ? 4200 : 3200);
   }, []);
 
   const flushAchievements = useCallback(() => {
     while (newAchievements.length) {
       const a = newAchievements.shift()!;
-      toast(`Erfolg: ${a}`, 'ach');
+      toast(t('store.achievement', { name: a }), 'ach');
       sound.achievement();
     }
   }, [toast]);
@@ -114,7 +116,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
   const update = useCallback(
     (fn: (s: GameState) => string | null | void) => {
       const cur = ref.current;
-      if (!cur) return 'Kein Spielstand';
+      if (!cur) return t('store.noGame');
       const draft = clone(cur);
       const err = fn(draft);
       if (typeof err === 'string' && err) {
@@ -144,9 +146,12 @@ export function GameProvider({ children }: { children: ReactNode }) {
   // Der Einkommens-Takt ändert den Spielstand jede Sekunde: dafür reicht ein Speichern alle paar Sekunden
   useEffect(() => {
     const id = setInterval(doSave, 4000);
-    const onHide = () => doSave();
+    const onHide = () => {
+      doSave();
+      void store.flush();
+    };
     const onVis = () => {
-      if (document.hidden) doSave();
+      if (document.hidden) onHide();
     };
     window.addEventListener('pagehide', onHide);
     document.addEventListener('visibilitychange', onVis);
@@ -199,7 +204,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
           savedRef.current = g;
           setGameState(g);
           setSaveInfo((i) => ({ ...i, cloud: 'ok', cloudAt: r.savedAt }));
-          toast('Spielstand aus dem dauerhaften Artifact-Speicher geladen', 'good');
+          toast(t('store.loadedFromCloud'), 'good');
         } else setSaveInfo((i) => ({ ...i, cloud: 'ok', cloudAt: r.savedAt, cloudNewer: !!g }));
       } else {
         setSaveInfo((i) => ({ ...i, cloud: 'ok', cloudAt: r?.savedAt ?? 0 }));
